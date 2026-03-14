@@ -190,7 +190,7 @@ def analyze_likeness_structured(image_bytes, char, act):
     return None, error
 
 def call_google_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key={apiKey}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
         "generationConfig": {"responseModalities": ["IMAGE"], "candidateCount": 1}
