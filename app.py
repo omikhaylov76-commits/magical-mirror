@@ -194,9 +194,23 @@ def call_google_generate(prompt):
 
 # 5. ИНТЕРФЕЙС
 col1, col2, col3 = st.columns(3)
-with col1: char = st.selectbox("Друг", ["Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin"])
-with col2: loc = st.selectbox("Место", ["Розовый замок", "Кафе сладостей", "Сказочный лес", "Радужное облако"])
-with col3: act = st.selectbox("Сюжет", ["Чаепитие", "Танцы", "Обнимашки", "Концерт"])
+with col1: char = st.selectbox("Друг", [
+    "Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin", 
+    "Pochacco", "Keroppi", "Badtz-Maru", "Chococat", "Tuxedosam", 
+    "Little Twin Stars", "Aggretsuko"
+])
+with col2: loc = st.selectbox("Место", [
+    "Розовый замок", "Кафе сладостей", "Сказочный лес", "Радужное облако",
+    "Шоколадная фабрика", "Неоновый Токио", "Звездная обсерватория", 
+    "Парк аттракционов", "Клубничный сад", "Подводный дворец", 
+    "Уютная пекарня", "Хрустальная пещера"
+])
+with col3: act = st.selectbox("Сюжет", [
+    "Чаепитие", "Танцы", "Обнимашки", "Концерт",
+    "Пикник на траве", "Катание на карусели", "Приготовление торта",
+    "Запуск воздушных змеев", "Чтение сказок", "Игра на гитаре", 
+    "Ловля бабочек", "Модная фотосессия"
+])
 
 st.markdown("<br>", unsafe_allow_html=True)
 source = st.radio("✨ Выбери свою фотографию ✨", ["📸 СЕЛФИ", "🖼️ ГАЛЕРЕЯ"], horizontal=True)
