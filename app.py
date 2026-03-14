@@ -255,4 +255,65 @@ if input_data:
                     if start_idx != -1 and end_idx != -1:
                         clean_json = json_response[start_idx:end_idx+1]
                     else:
-                        clean_json = re.sub(r'^
+                        # Безопасная очистка от markdown-тегов
+                        clean_json = json_response.replace('`'*3 + 'json', '').replace('`'*3, '').strip()
+                    
+                    people_data = json.loads(clean_json)
+                    if isinstance(people_data, dict): people_data = [people_data]
+                    p_count = len(people_data)
+                    
+                    st.write(f"🎨 Рисуем 3D мир для {p_count} героев...")
+                    
+                    final_prompt = (
+                        f"Create a high-quality, professional 3D animated character portrait, rendered in a style reminiscent of major studio films like Pixar or Disney.\n"
+                        f"The scene takes place at {loc}: Action: {act}, including interaction with {char}. "
+                        f"The image must feature EXACTLY {p_count} human characters, each being a stylized but undeniably recognizable caricature of the real person from the original photo.\n\n"
+                        f"The likeness of each character is critical and must be derived directly from the provided JSON character profiles. For each person (ID 1..N):\n"
+                        f"1. Geometry and Structure: Apply extreme care to capture the unique facial structure. Base the 3D geometry of the face on the 'face_shape', 'nose_shape', 'eye_characteristics', 'eyebrow_style', and 'jawline_and_chin' defined in their JSON object.\n"
+                        f"2. Body Proportions & Posture: Base their body type entirely on the 'body_structure_and_posture' description. Playfully exaggerate their physical traits (e.g., make chubby characters delightfully round, soft and bouncy; make tall characters humorously lanky; emphasize specific postures). Make it fun and animated, but keep it charming—do not go to grotesque extremes.\n"
+                        f"3. Unique Markers: Integrate all 'distinctive_features' (e.g., specific moles, freckle patterns, deep dimples, prominent cheekbones) as defining visual markers. Do not smooth these out; exaggerate them slightly for caricatured resemblance.\n"
+                        f"4. Facial Hair and Eyes: The eyes ('eye_characteristics') must retain their unique shape and color. Facial hair must be textured and styled exactly as described.\n"
+                        f"5. Expression Nuance: Translate the specific 'expression_label' and 'expression_nuance' from the JSON directly into the character's facial muscles and mouth shape.\n\n"
+                        f"The aesthetic must be warm, appealing, and expressive, focusing on detailed texture work (stylized fabric textures, hair rendering) and cinematic volumetric lighting. Maintain the joyful mood, but prioritize the specific character identities.\n\n"
+                        f"JSON PROFILES:\n{clean_json}"
+                    )
+                    
+                    img_bytes, gen_err = call_google_generate(final_prompt)
+                    
+                    if img_bytes:
+                        st.session_state.generated_img = img_bytes
+                        status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
+                        st.balloons()
+                    else: st.error(f"Ошибка генерации: {gen_err}")
+                except Exception as e: st.error(f"Ошибка обработки данных: {e}")
+            else: st.error(f"Ошибка анализа: {err_msg}. Проверьте фото или ключ.")
+
+if st.session_state.generated_img:
+    st.success("🎉 Готово! Твой шедевр!")
+    st.image(st.session_state.generated_img, use_container_width=True)
+    st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
+
+st.markdown("<br>", unsafe_allow_html=True)
+if st.button("🔄 Начать заново"):
+    st.session_state.generated_img = None
+    st.rerun()
+
+# --- Блокировка всплывающей клавиатуры для планшетов ---
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    const disableKeyboard = () => {
+        const inputs = doc.querySelectorAll('div[data-baseweb="select"] input');
+        inputs.forEach(input => {
+            input.setAttribute('inputmode', 'none');
+            input.setAttribute('readonly', 'true');
+        });
+    };
+    disableKeyboard();
+    const observer = new MutationObserver(disableKeyboard);
+    observer.observe(doc.body, {childList: true, subtree: true});
+    </script>
+    """,
+    height=0, width=0
+)
