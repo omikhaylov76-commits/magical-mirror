@@ -136,12 +136,15 @@ def make_request_with_retry(url, payload):
             response = requests.post(url, json=payload, timeout=60)
             if response.status_code == 200:
                 return response.json(), None
+            elif response.status_code in [429, 500, 503]:
+                time.sleep(2**i) 
+                continue
             else:
                 return None, f"Status {response.status_code}: {response.text}"
         except Exception as e:
             if i == 4: return None, str(e)
         time.sleep(2**i)
-    return None, "Timeout"
+    return None, "Превышено время ожидания или сервер перегружен"
 
 def analyze_likeness_structured(image_bytes, char, act):
     compressed_bytes = process_image_for_api(image_bytes)
@@ -180,11 +183,14 @@ def analyze_likeness_structured(image_bytes, char, act):
     
     result, error = make_request_with_retry(url, payload)
     if result:
-        return result['candidates'][0]['content']['parts'][0]['text'], None
+        try:
+            return result['candidates'][0]['content']['parts'][0]['text'], None
+        except (KeyError, IndexError):
+            return None, "Фото заблокировано фильтрами безопасности Google или ответ пуст."
     return None, error
 
 def call_google_generate(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
         "generationConfig": {"responseModalities": ["IMAGE"], "candidateCount": 1}
@@ -197,7 +203,9 @@ def call_google_generate(prompt):
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-        except: pass
+            return None, "Сервер обработал запрос, но не вернул картинку."
+        except (KeyError, IndexError):
+            return None, "Генерация заблокирована (возможно, сработал фильтр безопасности)."
     return None, error
 
 # 5. ИНТЕРФЕЙС
@@ -241,62 +249,10 @@ if input_data:
             
             if json_response:
                 try:
-                    clean_json = re.sub(r'```json\n|\n```', '', json_response).strip()
-                    people_data = json.loads(clean_json)
-                    if isinstance(people_data, dict): people_data = [people_data]
-                    p_count = len(people_data)
-                    
-                    st.write(f"🎨 Рисуем мир (Gemini 3.1) для {p_count} героев...")
-                    
-                    final_prompt = (
-                        f"Create a high-quality, professional 3D animated character portrait, rendered in a style reminiscent of major studio films like Pixar or Disney.\n"
-                        f"The scene takes place at {loc}: Action: {act}, including interaction with {char}. "
-                        f"The image must feature EXACTLY {p_count} human characters, each being a stylized but undeniably recognizable caricature of the real person from the original photo.\n\n"
-                        f"The likeness of each character is critical and must be derived directly from the provided JSON character profiles. For each person (ID 1..N):\n"
-                        f"1. Geometry and Structure: Apply extreme care to capture the unique facial structure. Base the 3D geometry of the face on the 'face_shape', 'nose_shape', 'eye_characteristics', 'eyebrow_style', and 'jawline_and_chin' defined in their JSON object. These features must dominate over a generic aesthetic.\n"
-                        f"2. Unique Markers: Integrate all 'distinctive_features' (e.g., specific moles, freckle patterns, deep dimples, prominent cheekbones) as defining visual markers. Do not smooth these out; exaggerate them slightly for caricatured resemblance.\n"
-                        f"3. Facial Hair and Eyes: The eyes ('eye_characteristics') must retain their unique shape and color. Facial hair must be textured and styled exactly as described.\n"
-                        f"4. Expression Nuance: Translate the specific 'expression_label' and 'expression_nuance' from the JSON (e.g., 'crinkles around the eyes', 'one raised eyebrow') directly into the character's facial muscles and mouth shape.\n\n"
-                        f"The aesthetic must be warm, appealing, and expressive, focusing on detailed texture work (stylized fabric textures, hair rendering) and cinematic volumetric lighting. Maintain the joyful mood, but prioritize the specific character identities.\n\n"
-                        f"JSON PROFILES:\n{clean_json}"
-                    )
-                    
-                    img_bytes, gen_err = call_google_generate(final_prompt)
-                    
-                    if img_bytes:
-                        st.session_state.generated_img = img_bytes
-                        status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
-                        st.balloons()
-                    else: st.error(f"Ошибка генерации: {gen_err}")
-                except Exception as e: st.error(f"Ошибка обработки данных: {e}")
-            else: st.error(f"Ошибка анализа: {err_msg}. Проверьте фото или ключ.")
-
-if st.session_state.generated_img:
-    st.success("🎉 Готово! Твой шедевр!")
-    st.image(st.session_state.generated_img, use_container_width=True)
-    st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
-
-st.markdown("<br>", unsafe_allow_html=True)
-if st.button("🔄 Начать заново"):
-    st.session_state.generated_img = None
-    st.rerun()
-
-# --- ИСПРАВЛЕНИЕ ДЛЯ ПЛАНШЕТОВ: Блокировка всплывающей клавиатуры ---
-components.html(
-    """
-    <script>
-    const doc = window.parent.document;
-    const disableKeyboard = () => {
-        const inputs = doc.querySelectorAll('div[data-baseweb="select"] input');
-        inputs.forEach(input => {
-            input.setAttribute('inputmode', 'none');
-            input.setAttribute('readonly', 'true');
-        });
-    };
-    disableKeyboard();
-    const observer = new MutationObserver(disableKeyboard);
-    observer.observe(doc.body, {childList: true, subtree: true});
-    </script>
-    """,
-    height=0, width=0
-)
+                    # УЛУЧШЕННАЯ ЗАЩИТА ПАРСИНГА: Ищем строго от [ до ]
+                    start_idx = json_response.find('[')
+                    end_idx = json_response.rfind(']')
+                    if start_idx != -1 and end_idx != -1:
+                        clean_json = json_response[start_idx:end_idx+1]
+                    else:
+                        clean_json = re.sub(r'^
