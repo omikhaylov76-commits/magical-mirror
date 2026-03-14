@@ -6,22 +6,23 @@ import re
 import time
 import io
 from PIL import Image
+import streamlit.components.v1 as components
 
-# 1. Настройка страницы (Wide mode для планшетов)
+# 1. Настройка страницы
 st.set_page_config(
     page_title="Magical Mirror", 
     page_icon="🎀", 
     layout="centered"
 )
 
-# 2. Получение ключа из secrets.toml (Ваш ключ №3)
+# 2. Получение ключа из secrets.toml
 apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 
 # Инициализация сессии
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# 3. ДИЗАЙН (Glassmorphism + Адаптивность)
+# 3. ДИЗАЙН
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Nunito:wght@600;800;900&display=swap');
@@ -143,7 +144,6 @@ def make_request_with_retry(url, payload):
     return None, "Timeout"
 
 def analyze_likeness_structured(image_bytes, char, act):
-    # Предварительная обработка (сжатие)
     compressed_bytes = process_image_for_api(image_bytes)
     base64_image = base64.b64encode(compressed_bytes).decode('utf-8')
     
@@ -157,14 +157,13 @@ def analyze_likeness_structured(image_bytes, char, act):
         "- expression_label: one of ['gentle_smile', 'big_smile', 'laughing', 'neutral', 'surprised', 'silly_face_with_tongue']\n"
         "- expression_description: factual description\n"
         "- emotion: 'happy', 'curious', 'playful'\n"
-        "- hair: {{'color': '...', 'style': '...', 'bangs': '...'}}\n"
+        "- hair: {'color': '...', 'style': '...', 'bangs': '...'}\n"
         "- eyewear: '...' or 'no eyewear'\n"
         "- outfit_colors: list of strings\n"
         "- accessories: list of strings\n\n"
         "Output ONLY valid JSON array. No extra text."
     )
     
-    # ИСПРАВЛЕНО: Используем стабильное имя модели gemini-2.5-flash
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": base64_image}}]}],
@@ -177,7 +176,6 @@ def analyze_likeness_structured(image_bytes, char, act):
     return None, error
 
 def call_google_generate(prompt):
-    # Используем Gemini 3.1 для генерации изображения (как в рабочей версии)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -257,3 +255,23 @@ st.markdown("<br>", unsafe_allow_html=True)
 if st.button("🔄 Начать заново"):
     st.session_state.generated_img = None
     st.rerun()
+
+# --- ИСПРАВЛЕНИЕ ДЛЯ ПЛАНШЕТОВ: Блокировка всплывающей клавиатуры ---
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    const disableKeyboard = () => {
+        const inputs = doc.querySelectorAll('div[data-baseweb="select"] input');
+        inputs.forEach(input => {
+            input.setAttribute('inputmode', 'none');
+            input.setAttribute('readonly', 'true');
+        });
+    };
+    disableKeyboard();
+    const observer = new MutationObserver(disableKeyboard);
+    observer.observe(doc.body, {childList: true, subtree: true});
+    </script>
+    """,
+    height=0, width=0
+)
