@@ -154,6 +154,7 @@ def analyze_likeness_structured(image_bytes, char, act):
         "- id: integer (1..N)\n"
         "- gender: 'male'/'female'/'unknown'\n"
         "- age_group: 'toddler'/'child'/'preteen'/'adult'\n"
+        "- body_structure_and_posture: detailed description (e.g., 'thin/slender with a long neck', 'plump/chubby build', 'slouching/stooped shoulders', 'broad shoulders', 'tall and lanky')\n"
         "- face_shape: e.g. 'round', 'oval', 'heart', 'square', 'diamond', 'long'\n"
         "- eye_characteristics: detailed description (e.g., 'deep-set narrow green eyes', 'large round brown eyes with long lashes', 'hooded blue eyes')\n"
         "- eyebrow_style: e.g., 'thick arched eyebrows', 'thin straight eyebrows', 'bushy unkempt eyebrows'\n"
