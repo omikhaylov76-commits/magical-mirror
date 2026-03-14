@@ -3,6 +3,7 @@ import requests
 import io
 import base64
 import re
+import time
 from PIL import Image
 from openai import OpenAI
 import streamlit.components.v1 as components
@@ -18,8 +19,8 @@ st.set_page_config(
 OPENAI_KEY = st.secrets.get("OPENAI_API_KEY", "")
 GOOGLE_KEY = st.secrets.get("GOOGLE_API_KEY", "")
 
-# Клиент для анализа (GPT-4o)
-client_openai = OpenAI(api_key=OPENAI_KEY)
+# Безопасная инициализация клиента OpenAI (только если есть ключ)
+client_openai = OpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 
 # 3. Премиальный дизайн в стиле iOS 26
 st.markdown("""
@@ -71,12 +72,23 @@ st.markdown("""
 
 # 4. Функции обработки
 
-def encode_image(image_bytes):
-    return base64.b64encode(image_bytes).decode('utf-8')
+def process_and_encode_image(image_bytes):
+    """Сжатие изображения для предотвращения ошибки 'Payload Too Large' при загрузке тяжелых фото"""
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        # Сжимаем фото, если оно больше 1600px (этого достаточно для ИИ)
+        if max(img.size) > 1600:
+            img.thumbnail((1600, 1600))
+        output = io.BytesIO()
+        img.convert('RGB').save(output, format='JPEG', quality=85)
+        return base64.b64encode(output.getvalue()).decode('utf-8')
+    except Exception:
+        # Резервный вариант, если PIL не справился
+        return base64.b64encode(image_bytes).decode('utf-8')
 
 def analyze_likeness(image_bytes, engine_choice):
     """Глубокий физиономический анализ через выбранную ИИ-модель."""
-    base64_image = encode_image(image_bytes)
+    base64_image = process_and_encode_image(image_bytes)
     
     prompt = (
         "Ты — эксперт-физиономист Pixar. Твоя задача — составить точный анатомический паспорт для 100% узнаваемости КАЖДОГО человека на фото (включая тех, кто на заднем плане).\n\n"
@@ -91,6 +103,9 @@ def analyze_likeness(image_bytes, engine_choice):
     )
 
     if "GPT-4o" in engine_choice:
+        if not client_openai:
+            st.error("Ключ OpenAI не настроен. Пожалуйста, выберите Gemini для анализа или добавьте ключ.")
+            return None
         try:
             response = client_openai.chat.completions.create(
                 model="gpt-4o",
@@ -104,7 +119,7 @@ def analyze_likeness(image_bytes, engine_choice):
             st.error(f"Ошибка анализа GPT-4o: {e}")
             return None
     else:
-        # Логика для Gemini 2.5 Flash
+        # Логика для Gemini 2.5 Flash с защитой от сбоев
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_KEY}"
         payload = {
             "contents": [{
@@ -120,26 +135,34 @@ def analyze_likeness(image_bytes, engine_choice):
                 {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"}
             ]
         }
-        try:
-            response = requests.post(url, json=payload, timeout=60)
-            if response.status_code == 200:
-                result = response.json()
-                candidates = result.get('candidates', [])
-                if candidates and 'content' in candidates[0]:
-                    return candidates[0]['content']['parts'][0]['text']
+        # Делаем до 3 попыток на случай перебоев в сети
+        for attempt in range(3):
+            try:
+                response = requests.post(url, json=payload, timeout=60)
+                if response.status_code == 200:
+                    result = response.json()
+                    candidates = result.get('candidates', [])
+                    if candidates and 'content' in candidates[0]:
+                        return candidates[0]['content']['parts'][0]['text']
+                    else:
+                        finish_reason = candidates[0].get('finishReason', 'Неизвестно') if candidates else 'Отсутствуют данные'
+                        st.warning(f"⚠️ Gemini заблокировал анализ этого фото (Причина: {finish_reason}). Выберите GPT-4o для этой фотографии.")
+                        return None
+                elif response.status_code in [429, 500, 503]:
+                    time.sleep(2) # Ждем и пробуем снова при перегрузке
+                    continue
                 else:
-                    finish_reason = candidates[0].get('finishReason', 'Неизвестно') if candidates else 'Отсутствуют данные'
-                    st.warning(f"⚠️ Gemini заблокировал анализ этого фото (Причина: {finish_reason}). Сработали строгие фильтры безопасности Google. Пожалуйста, выберите GPT-4o для этой фотографии.")
+                    st.error(f"Ошибка анализа Gemini (Код {response.status_code}): {response.text}")
                     return None
-            else:
-                st.error(f"Ошибка анализа Gemini (Код {response.status_code}): {response.text}")
-                return None
-        except Exception as e:
-            st.error(f"Ошибка соединения Gemini: {e}")
-            return None
+            except Exception as e:
+                if attempt == 2:
+                    st.error(f"Ошибка соединения Gemini: {e}")
+                    return None
+                time.sleep(2)
+        return None
 
 def call_google_generate(prompt, model_id):
-    """Универсальная смарт-функция генерации через Google API, настроенная под ваши доступы."""
+    """Универсальная смарт-функция генерации через Google API с повторными попытками."""
     if not model_id:
         return None
         
@@ -167,36 +190,46 @@ def call_google_generate(prompt, model_id):
         st.error("Неизвестный формат модели Google.")
         return None
         
-    try:
-        response = requests.post(url, json=payload, timeout=120)
-        
-        if response.status_code == 200:
-            result = response.json()
+    # Защита от сбоев API (3 попытки)
+    for attempt in range(3):
+        try:
+            response = requests.post(url, json=payload, timeout=120)
             
-            # Извлечение картинки для Imagen
-            if "imagen" in model_id:
-                predictions = result.get('predictions', [])
-                if predictions and 'bytesBase64Encoded' in predictions[0]:
-                    return base64.b64decode(predictions[0]['bytesBase64Encoded'])
-                    
-            # Извлечение картинки для Gemini
-            elif "gemini" in model_id:
-                try:
-                    parts = result.get('candidates', [{}])[0].get('content', {}).get('parts', [])
-                    for part in parts:
-                        if 'inlineData' in part:
-                            return base64.b64decode(part['inlineData']['data'])
-                except (KeyError, IndexError):
-                    st.error("Ошибка парсинга ответа от Gemini.")
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Извлечение картинки для Imagen
+                if "imagen" in model_id:
+                    predictions = result.get('predictions', [])
+                    if predictions and 'bytesBase64Encoded' in predictions[0]:
+                        return base64.b64decode(predictions[0]['bytesBase64Encoded'])
+                        
+                # Извлечение картинки для Gemini
+                elif "gemini" in model_id:
+                    try:
+                        parts = result.get('candidates', [{}])[0].get('content', {}).get('parts', [])
+                        for part in parts:
+                            if 'inlineData' in part:
+                                return base64.b64decode(part['inlineData']['data'])
+                    except (KeyError, IndexError):
+                        pass # Перейдет к ошибке ниже
+                
+                st.error("Техническая ошибка: API не вернуло изображение в ожидаемом формате.")
+                return None
+                
+            elif response.status_code in [429, 500, 503]:
+                time.sleep(2 ** attempt) # Экспоненциальная задержка (1с, 2с, 4с)
+                continue
+            else:
+                st.error(f"Ошибка API (Код {response.status_code}): {response.text}")
+                return None
+                
+        except Exception as e:
+            if attempt == 2:
+                st.error(f"Сбой соединения: {e}")
+                return None
+            time.sleep(2)
             
-            st.error("Техническая ошибка: API не вернуло изображение в ожидаемом формате.")
-            
-        else:
-            st.error(f"Ошибка API (Код {response.status_code}): {response.text}")
-            
-    except Exception as e:
-        st.error(f"Сбой соединения: {e}")
-        
     return None
 
 # 5. Интерфейс
@@ -204,7 +237,7 @@ def call_google_generate(prompt, model_id):
 st.title("🎀 Магическое Зеркало Pro")
 st.markdown('<p class="info-text">Выберите вашу идеальную модель для генерации</p>', unsafe_allow_html=True)
 
-# СЛОВАРЬ ВАШИХ ДОСТУПНЫХ МОДЕЛЕЙ (Основано на результатах диагностики)
+# СЛОВАРЬ ВАШИХ ДОСТУПНЫХ МОДЕЛЕЙ
 AVAILABLE_MODELS = {
     "🌟 Imagen 4.0 Ultra (Флагман, Макс. реализм)": "imagen-4.0-ultra-generate-001",
     "🎨 Imagen 4.0 Standard (Быстрый 16:9 рендер)": "imagen-4.0-generate-001",
@@ -280,7 +313,6 @@ if st.button("🔄 Сброс"):
     st.rerun()
 
 # --- ИСПРАВЛЕНИЕ ДЛЯ ПЛАНШЕТОВ: Блокировка всплывающей клавиатуры ---
-# Этот невидимый блок добавляет атрибут inputmode='none' во все списки
 components.html(
     """
     <script>
@@ -292,9 +324,7 @@ components.html(
             input.setAttribute('readonly', 'true');
         });
     };
-    // Отключаем клавиатуру при загрузке
     disableKeyboard();
-    // И следим за тем, чтобы отключать её при любых обновлениях страницы
     const observer = new MutationObserver(disableKeyboard);
     observer.observe(doc.body, {childList: true, subtree: true});
     </script>
