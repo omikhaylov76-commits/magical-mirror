@@ -249,13 +249,16 @@ if input_data:
                     st.write(f"🎨 Рисуем мир (Gemini 3.1) для {p_count} героев...")
                     
                     final_prompt = (
-                        f"Create a joyful, Pixar-inspired 3D animation still.\n"
-                        f"Scene: {loc}, Action: {act} with {char}.\n"
-                        f"EXACTLY {p_count} humans from the photo transformed into recognizable 3D cartoon characters.\n"
-                        f"Style: warm, friendly, rounded 3D cartoon style. Lighting: warm cinematic glow.\n"
-                        f"Resolution: 2K (2560x1440).\n"
-                        f"Interaction: {char} must be interacting with these people.\n"
-                        f"Use this visual analysis for likeness and expressions:\n{clean_json}"
+                        f"Create a high-quality, professional 3D animated character portrait, rendered in a style reminiscent of major studio films like Pixar or Disney.\n"
+                        f"The scene takes place at {loc}: Action: {act}, including interaction with {char}. "
+                        f"The image must feature EXACTLY {p_count} human characters, each being a stylized but undeniably recognizable caricature of the real person from the original photo.\n\n"
+                        f"The likeness of each character is critical and must be derived directly from the provided JSON character profiles. For each person (ID 1..N):\n"
+                        f"1. Geometry and Structure: Apply extreme care to capture the unique facial structure. Base the 3D geometry of the face on the 'face_shape', 'nose_shape', 'eye_characteristics', 'eyebrow_style', and 'jawline_and_chin' defined in their JSON object. These features must dominate over a generic aesthetic.\n"
+                        f"2. Unique Markers: Integrate all 'distinctive_features' (e.g., specific moles, freckle patterns, deep dimples, prominent cheekbones) as defining visual markers. Do not smooth these out; exaggerate them slightly for caricatured resemblance.\n"
+                        f"3. Facial Hair and Eyes: The eyes ('eye_characteristics') must retain their unique shape and color. Facial hair must be textured and styled exactly as described.\n"
+                        f"4. Expression Nuance: Translate the specific 'expression_label' and 'expression_nuance' from the JSON (e.g., 'crinkles around the eyes', 'one raised eyebrow') directly into the character's facial muscles and mouth shape.\n\n"
+                        f"The aesthetic must be warm, appealing, and expressive, focusing on detailed texture work (stylized fabric textures, hair rendering) and cinematic volumetric lighting. Maintain the joyful mood, but prioritize the specific character identities.\n\n"
+                        f"JSON PROFILES:\n{clean_json}"
                     )
                     
                     img_bytes, gen_err = call_google_generate(final_prompt)
