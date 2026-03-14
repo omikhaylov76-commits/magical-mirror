@@ -175,7 +175,8 @@ def analyze_likeness_structured(image_bytes, char, act):
         "Output ONLY valid JSON array. No extra text."
     )
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash:generateContent?key={apiKey}"
+    # Заменили модель-аналитик на gemini-3.1-flash-image-preview
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": base64_image}}]}],
         "generationConfig": {"responseMimeType": "application/json"}
