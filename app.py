@@ -210,17 +210,14 @@ def generate_pixar_art(prompt):
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
-            # Проверка наличия кандидатов в ответе
             if 'candidates' not in res or not res['candidates']:
                 return None, "Генерация отклонена фильтрами безопасности Google или пустой ответ."
             
             candidate = res['candidates'][0]
             
-            # Проверка причины завершения (например, SAFETY)
             if candidate.get('finishReason') == 'SAFETY':
                 return None, "Генерация заблокирована: запрос признан небезопасным (Safety Filter)."
             
-            # Безопасное извлечение контента и частей ответа
             content = candidate.get('content', {})
             parts = content.get('parts', [])
             
@@ -264,7 +261,6 @@ if input_data:
             
             if json_res:
                 try:
-                    # Защищенный парсинг JSON
                     start_idx = json_res.find('[')
                     end_idx = json_res.rfind(']')
                     if start_idx != -1 and end_idx != -1:
@@ -278,18 +274,20 @@ if input_data:
                     
                     st.write(f"🎨 Мастер-промптинг...")
                     
+                    # ОБНОВЛЕННЫЙ ПРОМПТ ДЛЯ ГОРИЗОНТАЛЬНОГО ВЫВОДА
                     final_prompt = (
                         f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
-                        f"Translate the following JSON profiles into a highly descriptive English paragraph for image generation.\n\n"
-                        f"Target Canvas: Vertical portrait orientation (720x1280).\n"
+                        f"Translate the following JSON profiles into a highly descriptive English paragraph for landscape image generation.\n\n"
+                        f"Target Canvas: Horizontal landscape orientation (1280x720).\n"
                         f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, and highly detailed volumetric lighting.\n\n"
                         f"Scene Context: {act} with {char} in {loc}.\n"
                         f"EXACTLY {p_count} humans translated into hilarious but charming 3D characters.\n\n"
                         f"Translation Instructions:\n"
-                        f"1. Playful Twist: Exaggerate distinctive features by 150%. "
-                        f"2. Micro-Details: Include skin texture, freckles, facial hair from JSON.\n"
-                        f"3. Interaction: Describe physical interaction with {char}.\n"
-                        f"4. Cinematography: Cinematic three-point lighting, warm rim light, volumetric atmosphere.\n\n"
+                        f"1. Playful Twist: Identify the most distinctive features of each person from JSON and playfully exaggerate them by 150%. "
+                        f"Make heavy-set builds delightfully round and bouncy, and lanky builds comically noodle-like. Eyes must be massive and expressive.\n"
+                        f"2. Micro-Details: Faithfully anchor to reality by including skin texture, freckles, facial hair, and exact outfit colors from JSON.\n"
+                        f"3. Interaction: Describe the physical interaction with {char} based on 'limbs_and_hands_pose' and 'interaction_with_scene'.\n"
+                        f"4. Cinematography: Use cinematic three-point lighting, warm rim light, rich volumetric atmosphere, and a dynamic horizontal 16:9 composition.\n\n"
                         f"JSON DATA:\n{clean_json}"
                     )
                     
