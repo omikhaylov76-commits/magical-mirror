@@ -210,17 +210,30 @@ def generate_pixar_art(prompt):
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
+            # Проверка наличия кандидатов в ответе
             if 'candidates' not in res or not res['candidates']:
-                return None, "Генерация отклонена фильтрами безопасности Google."
+                return None, "Генерация отклонена фильтрами безопасности Google или пустой ответ."
             
-            parts = res['candidates'][0]['content']['parts']
+            candidate = res['candidates'][0]
+            
+            # Проверка причины завершения (например, SAFETY)
+            if candidate.get('finishReason') == 'SAFETY':
+                return None, "Генерация заблокирована: запрос признан небезопасным (Safety Filter)."
+            
+            # Безопасное извлечение контента и частей ответа
+            content = candidate.get('content', {})
+            parts = content.get('parts', [])
+            
+            if not parts:
+                return None, "Сервер вернул ответ без графических данных. Попробуйте другой сюжет."
+
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
             
-            return None, "ИИ ответил текстом вместо картинки. Попробуйте другое фото."
+            return None, "ИИ ответил текстом вместо картинки. Попробуйте более простой запрос."
         except Exception as e:
-            return None, f"Ошибка чтения картинки: {str(e)}"
+            return None, f"Ошибка структуры ответа: {str(e)}"
     return None, err
 
 # 5. Интерфейс приложения
