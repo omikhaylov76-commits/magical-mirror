@@ -22,7 +22,7 @@ apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# 3. Дизайн «Магического Зеркала»
+# 3. Магический дизайн (CSS)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Nunito:wght@600;800;900&display=swap');
@@ -189,7 +189,10 @@ def generate_pixar_art(prompt):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
-        "generationConfig": {"responseModalities": ["IMAGE"], "candidateCount": 1}
+        "generationConfig": {
+            "responseModalities": ["IMAGE"], 
+            "candidateCount": 1
+        }
     }
     
     res, err = make_request_with_retry(url, payload)
@@ -230,7 +233,7 @@ if input_data:
             
             if json_res:
                 try:
-                    # Защищенный парсинг JSON (поиск скобок)
+                    # Защищенный парсинг JSON (поиск скобок [ ])
                     start_idx = json_res.find('[')
                     end_idx = json_res.rfind(']')
                     if start_idx != -1 and end_idx != -1:
@@ -242,19 +245,23 @@ if input_data:
                     if isinstance(people_data, dict): people_data = [people_data]
                     p_count = len(people_data)
                     
-                    st.write(f"🎨 Создаем Pixar-двойников ({p_count} чел.)...")
+                    st.write(f"🎨 Мастер-промптинг...")
                     
+                    # Продвинутая логика "Master AI Prompt Engineer"
                     final_prompt = (
-                        f"Create a high-quality, professional 3D animated character portrait in Pixar/Disney style.\n"
-                        f"Scene: {loc}, Action: {act} with {char}.\n"
-                        f"EXACTLY {p_count} human characters as recognizable caricatures of the people in the photo.\n\n"
-                        f"Likeness Instructions:\n"
-                        f"1. Geometry: Base 3D geometry STRICTLY on the 'head_and_face_geometry' and 'facial_features_detailed' in the JSON.\n"
-                        f"2. Build & Posture: Faithfully recreate 'anatomy_and_build' (body type, posture, height). Playfully exaggerate traits (chubby = round/bouncy, tall = lanky).\n"
-                        f"3. Skin & Markers: Apply 'skin_texture_and_complexion' and all 'imperfections_and_marks' (moles, freckles) as defining visual markers.\n"
-                        f"4. Styling: Recreate 'hair_and_styling' and 'external_factors' (eyewear style, outfit colors) precisely.\n"
-                        f"5. Atmosphere: Cinematic three-point lighting, warm rim light, volumetric Pixar atmosphere.\n\n"
-                        f"JSON PROFILES: {clean_json}"
+                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
+                        f"Translate the following JSON profiles into a highly descriptive English paragraph for image generation.\n\n"
+                        f"Target Canvas: Vertical portrait orientation (720x1280).\n"
+                        f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, and highly detailed volumetric lighting.\n\n"
+                        f"Scene Context: {act} with {char} in {loc}.\n"
+                        f"EXACTLY {p_count} humans translated into hilarious but charming 3D characters.\n\n"
+                        f"Translation Instructions:\n"
+                        f"1. Playful Twist: Identify the most distinctive features of each person from JSON (e.g., prominent nose, skeletal posture, face fullness) and playfully exaggerate them by 150%. "
+                        f"Make heavy-set builds delightfully round and bouncy, and lanky builds comically noodle-like. Eyes must be massive and expressive.\n"
+                        f"2. Micro-Details: Faithfully anchor to reality by including skin texture, freckles, facial hair, and exact outfit colors from JSON.\n"
+                        f"3. Interaction: Describe the physical interaction with {char} based on 'limbs_and_hands_pose' and 'interaction_with_scene'.\n"
+                        f"4. Cinematography: Use cinematic three-point lighting, warm rim light, rich volumetric atmosphere, and a dynamic vertical composition.\n\n"
+                        f"JSON DATA:\n{clean_json}"
                     )
                     
                     img_bytes, g_err = generate_pixar_art(final_prompt)
