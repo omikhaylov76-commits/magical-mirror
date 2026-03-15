@@ -5,7 +5,7 @@ import base64
 import re
 import json
 import time
-from PIL import Image, ImageOps
+from PIL import Image
 import streamlit.components.v1 as components
 
 # 1. Настройка страницы
@@ -22,7 +22,7 @@ apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# Настройки безопасности
+# Настройки безопасности (ОБЯЗАТЕЛЬНО для карикатур и анализа)
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -115,9 +115,9 @@ st.markdown("""
 st.markdown('<div class="magical-title">Magical Mirror</div>', unsafe_allow_html=True)
 
 # 4. Функции обработки
+
 def process_image(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
-    img = ImageOps.exif_transpose(img)
     if max(img.size) > 1600:
         img.thumbnail((1600, 1600))
     output = io.BytesIO()
@@ -140,6 +140,7 @@ def make_request_with_retry(url, payload):
     return None, "Error"
 
 def analyze_likeness_structured(image_bytes, char, act):
+    """Этап 1: Экспертный антропологический анализ (JSON)."""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
@@ -160,11 +161,11 @@ def analyze_likeness_structured(image_bytes, char, act):
     if res:
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
-        except Exception as e: 
-            return None, f"Ошибка извлечения текста: {e}"
+        except: return None, "Ошибка анализа фото"
     return None, err
 
 def generate_image(prompt):
+    """Этап 2: Творческая генерация (Hands)."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -175,19 +176,19 @@ def generate_image(prompt):
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
-            candidate = res.get('candidates', [{}])[0]
+            candidate = res['candidates'][0]
             if candidate.get('finishReason') == 'SAFETY':
                 return None, "Заблокировано фильтром безопасности."
             parts = candidate.get('content', {}).get('parts', [])
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-            return None, "Сервер не вернул графику."
-        except Exception as e: 
-            return None, f"Ошибка парсинга ответа: {e}"
+            return None, "ИИ не прислал изображение."
+        except: return None, "Ошибка отрисовки"
     return None, err
 
 # 5. Интерфейс
+
 col1, col2, col3 = st.columns(3)
 with col1: char = st.selectbox("Друг:", ["Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin", "Keroppi", "Badtz-Maru"])
 with col2: loc = st.selectbox("Место:", ["Розовый замок", "Кафе сладостей", "Сказочный лес", "Радужное облако", "Неоновый Токио"])
@@ -206,7 +207,6 @@ else:
 
 if input_data:
     st.image(input_data, use_container_width=True)
-    
     if st.button("✨ CREATE MAGIC ✨"):
         with st.status("🪄 Творим волшебство...", expanded=True) as status:
             st.write("👀 Анализируем детали...")
@@ -214,45 +214,41 @@ if input_data:
             
             if json_res:
                 try:
-                    clean_json = re.sub(r'```json\n|```', '', json_res).strip()
-                    
-                    if '[' in clean_json and ']' in clean_json:
-                        clean_json = clean_json[clean_json.find('['):clean_json.rfind(']')+1]
-                    elif '{' in clean_json and '}' in clean_json:
-                        clean_json = clean_json[clean_json.find('{'):clean_json.rfind('}')+1]
+                    # Очистка JSON
+                    start_idx = json_res.find('[')
+                    end_idx = json_res.rfind(']')
+                    clean_json = json_res[start_idx:end_idx+1] if (start_idx != -1 and end_idx != -1) else json_res
                     
                     people_data = json.loads(clean_json)
                     if isinstance(people_data, dict): people_data = [people_data]
+                    p_count = len(people_data)
                     
-                    st.write(f"🎨 Мастер-промптинг в 16:9...")
+                    st.write(f"🎨 Мастер-промптинг...")
                     
+                    # МАСТЕР-ПРОМПТ ДЛЯ ГОРИЗОНТАЛЬНОЙ ГЕНЕРАЦИИ (1280x720)
                     final_prompt = (
                         f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
-                        f"Translate the clinical JSON profile of real people into a highly descriptive English paragraph.\n\n"
+                        f"Translate the clinical JSON profile of real people into a highly descriptive, continuous English paragraph.\n\n"
                         f"Target Canvas: Horizontal landscape orientation (1280x720).\n"
                         f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, volumetric lighting.\n\n"
                         f"Scene Context: {act} with {char} in {loc}.\n"
                         f"Instructions:\n"
-                        f"1. Playful Twist: Identify 1-2 distinctive features of each person from JSON and playfully exaggerate them by 150%. "
+                        f"1. Playful Twist: Exaggerate 1-2 distinctive features of each person from JSON by 150% (round faces comically round, lanky limbs noodle-like). "
                         f"2. Micro-Details: Include skin texture, freckles, facial hair, and exact outfit colors from JSON.\n"
-                        f"3. Interaction: Describe physical interaction with {char} based on JSON.\n"
-                        f"4. Cinematography: Cinematic three-point lighting, warm rim light, rich volumetric atmosphere, dynamic horizontal 16:9 composition.\n\n"
-                        f"JSON DATA:\n{json.dumps(people_data)}"
+                        f"3. Cinematography: Warm rim light, rich volumetric atmosphere, dynamic horizontal 16:9 composition.\n\n"
+                        f"JSON DATA:\n{clean_json}"
                     )
                     
-                    st.write("🌌 Генерируем изображение...")
                     img_bytes, g_err = generate_image(final_prompt)
-                    
                     if img_bytes:
                         st.session_state.generated_img = img_bytes
-                        status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
+                        status.update(label="✨ Готово!", state="complete", expanded=False)
                         st.balloons()
-                    else: st.error(f"Ошибка генерации: {g_err}")
-                except Exception as e: st.error(f"Ошибка обработки данных: {e}")
+                    else: st.error(f"Ошибка: {g_err}")
+                except Exception as e: st.error(f"Ошибка данных: {e}")
             else: st.error(f"Ошибка анализа: {err}")
 
 if st.session_state.generated_img:
-    st.success("🎉 Твой шедевр готов!")
     st.image(st.session_state.generated_img, use_container_width=True)
     st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
 
