@@ -5,7 +5,7 @@ import base64
 import re
 import json
 import time
-from PIL import Image
+from PIL import Image, ImageOps
 import streamlit.components.v1 as components
 
 # 1. Настройка страницы
@@ -22,7 +22,7 @@ apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# Настройки безопасности (чтобы ИИ не блокировал карикатуры)
+# Настройки безопасности
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -115,9 +115,9 @@ st.markdown("""
 st.markdown('<div class="magical-title">Magical Mirror</div>', unsafe_allow_html=True)
 
 # 4. Функции обработки
-
 def process_image(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img) # ИСПРАВЛЕНИЕ: сохраняем ориентацию с мобильных камер
     if max(img.size) > 1600:
         img.thumbnail((1600, 1600))
     output = io.BytesIO()
@@ -140,7 +140,7 @@ def make_request_with_retry(url, payload):
     return None, "Error"
 
 def analyze_likeness_structured(image_bytes, char, act):
-    """Этап 1: Экспертный антропологический анализ (JSON)."""
+    """Этап 1: Анализ фото (Требует классической Flash модели для текста/JSON)"""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
@@ -150,7 +150,8 @@ def analyze_likeness_structured(image_bytes, char, act):
         "Output ONLY a valid JSON array. Do NOT include any extra text. Start with [ and end with ]."
     )
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
+    # ИСПРАВЛЕНИЕ: Используем модель 1.5-flash для мультимодального анализа
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": base64_image}}]}],
         "generationConfig": {"responseMimeType": "application/json"},
@@ -161,11 +162,12 @@ def analyze_likeness_structured(image_bytes, char, act):
     if res:
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
-        except: return None, "Ошибка анализа фото"
+        except Exception as e: 
+            return None, f"Ошибка извлечения текста: {e}"
     return None, err
 
 def generate_image(prompt):
-    """Этап 2: Творческая генерация (Hands)."""
+    """Этап 2: Творческая генерация (Используем специализированную Image-модель)"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -176,7 +178,7 @@ def generate_image(prompt):
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
-            candidate = res['candidates'][0]
+            candidate = res.get('candidates', [{}])[0]
             if candidate.get('finishReason') == 'SAFETY':
                 return None, "Заблокировано фильтром безопасности."
             parts = candidate.get('content', {}).get('parts', [])
@@ -184,11 +186,11 @@ def generate_image(prompt):
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
             return None, "Сервер не вернул графику."
-        except: return None, "Ошибка генерации"
+        except Exception as e: 
+            return None, f"Ошибка парсинга ответа: {e}"
     return None, err
 
 # 5. Интерфейс
-
 col1, col2, col3 = st.columns(3)
 with col1: char = st.selectbox("Друг:", ["Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin", "Keroppi", "Badtz-Maru"])
 with col2: loc = st.selectbox("Место:", ["Розовый замок", "Кафе сладостей", "Сказочный лес", "Радужное облако", "Неоновый Токио"])
@@ -215,18 +217,19 @@ if input_data:
             
             if json_res:
                 try:
-                    # Защищенный парсинг JSON
-                    start_idx = json_res.find('[')
-                    end_idx = json_res.rfind(']')
-                    clean_json = json_res[start_idx:end_idx+1] if (start_idx != -1 and end_idx != -1) else json_res
+                    # ИСПРАВЛЕНИЕ: Более надежный парсинг JSON с защитой от Markdown
+                    clean_json = re.sub(r'```json\n|```', '', json_res).strip()
+                    
+                    if '[' in clean_json and ']' in clean_json:
+                        clean_json = clean_json[clean_json.find('['):clean_json.rfind(']')+1]
+                    elif '{' in clean_json and '}' in clean_json:
+                        clean_json = clean_json[clean_json.find('{'):clean_json.rfind('}')+1]
                     
                     people_data = json.loads(clean_json)
                     if isinstance(people_data, dict): people_data = [people_data]
-                    p_count = len(people_data)
                     
                     st.write(f"🎨 Мастер-промптинг в 16:9...")
                     
-                    # НОВЫЙ МАСТЕР-ПРОМПТ (ГОРИЗОНТАЛЬНЫЙ)
                     final_prompt = (
                         f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
                         f"Translate the clinical JSON profile of real people into a highly descriptive English paragraph.\n\n"
@@ -238,9 +241,10 @@ if input_data:
                         f"2. Micro-Details: Include skin texture, freckles, facial hair, and exact outfit colors from JSON.\n"
                         f"3. Interaction: Describe physical interaction with {char} based on JSON.\n"
                         f"4. Cinematography: Cinematic three-point lighting, warm rim light, rich volumetric atmosphere, dynamic horizontal 16:9 composition.\n\n"
-                        f"JSON DATA:\n{clean_json}"
+                        f"JSON DATA:\n{json.dumps(people_data)}"
                     )
                     
+                    st.write("🌌 Генерируем изображение...")
                     img_bytes, g_err = generate_image(final_prompt)
                     
                     if img_bytes:
@@ -248,7 +252,7 @@ if input_data:
                         status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
                         st.balloons()
                     else: st.error(f"Ошибка генерации: {g_err}")
-                except Exception as e: st.error(f"Ошибка данных: {e}")
+                except Exception as e: st.error(f"Ошибка обработки данных: {e}")
             else: st.error(f"Ошибка анализа: {err}")
 
 if st.session_state.generated_img:
@@ -258,6 +262,7 @@ if st.session_state.generated_img:
 
 st.markdown("<br>", unsafe_allow_html=True)
 if st.button("🔄 Начать заново"):
+    # Очистка памяти сессии для следующей работы
     st.session_state.generated_img = None
     st.rerun()
 
