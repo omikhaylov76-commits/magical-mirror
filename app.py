@@ -141,11 +141,11 @@ def make_request_with_retry(url, payload):
             elif response.status_code in [429, 500, 503]:
                 time.sleep(2**i)
                 continue
-            return None, f"Status {response.status_code}: {response.text}"
+            return None, f"Ошибка сервера ({response.status_code}): {response.text[:100]}"
         except Exception as e:
-            if i == 4: return None, str(e)
+            if i == 4: return None, f"Сетевая ошибка: {str(e)}"
         time.sleep(2**i)
-    return None, "Error"
+    return None, "Превышено время ожидания"
 
 def analyze_image_expert(image_bytes, char, act):
     """Этап 1: Экспертный антропологический анализ (Глаза)."""
@@ -173,7 +173,13 @@ def analyze_image_expert(image_bytes, char, act):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": base64_image}}]}],
-        "generationConfig": {"responseMimeType": "application/json"}
+        "generationConfig": {"responseMimeType": "application/json"},
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
     }
     
     res, err = make_request_with_retry(url, payload)
@@ -181,7 +187,7 @@ def analyze_image_expert(image_bytes, char, act):
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
         except:
-            return None, "Ошибка формата данных анализа."
+            return None, "ИИ заблокировал анализ фото (Safety Filter)."
     return None, err
 
 def generate_pixar_art(prompt):
@@ -192,17 +198,29 @@ def generate_pixar_art(prompt):
         "generationConfig": {
             "responseModalities": ["IMAGE"], 
             "candidateCount": 1
-        }
+        },
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ]
     }
     
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
+            if 'candidates' not in res or not res['candidates']:
+                return None, "Генерация отклонена фильтрами безопасности Google."
+            
             parts = res['candidates'][0]['content']['parts']
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-        except: pass
+            
+            return None, "ИИ ответил текстом вместо картинки. Попробуйте другое фото."
+        except Exception as e:
+            return None, f"Ошибка чтения картинки: {str(e)}"
     return None, err
 
 # 5. Интерфейс приложения
@@ -233,7 +251,7 @@ if input_data:
             
             if json_res:
                 try:
-                    # Защищенный парсинг JSON (поиск скобок [ ])
+                    # Защищенный парсинг JSON
                     start_idx = json_res.find('[')
                     end_idx = json_res.rfind(']')
                     if start_idx != -1 and end_idx != -1:
@@ -247,7 +265,6 @@ if input_data:
                     
                     st.write(f"🎨 Мастер-промптинг...")
                     
-                    # Продвинутая логика "Master AI Prompt Engineer"
                     final_prompt = (
                         f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
                         f"Translate the following JSON profiles into a highly descriptive English paragraph for image generation.\n\n"
@@ -256,11 +273,10 @@ if input_data:
                         f"Scene Context: {act} with {char} in {loc}.\n"
                         f"EXACTLY {p_count} humans translated into hilarious but charming 3D characters.\n\n"
                         f"Translation Instructions:\n"
-                        f"1. Playful Twist: Identify the most distinctive features of each person from JSON (e.g., prominent nose, skeletal posture, face fullness) and playfully exaggerate them by 150%. "
-                        f"Make heavy-set builds delightfully round and bouncy, and lanky builds comically noodle-like. Eyes must be massive and expressive.\n"
-                        f"2. Micro-Details: Faithfully anchor to reality by including skin texture, freckles, facial hair, and exact outfit colors from JSON.\n"
-                        f"3. Interaction: Describe the physical interaction with {char} based on 'limbs_and_hands_pose' and 'interaction_with_scene'.\n"
-                        f"4. Cinematography: Use cinematic three-point lighting, warm rim light, rich volumetric atmosphere, and a dynamic vertical composition.\n\n"
+                        f"1. Playful Twist: Exaggerate distinctive features by 150%. "
+                        f"2. Micro-Details: Include skin texture, freckles, facial hair from JSON.\n"
+                        f"3. Interaction: Describe physical interaction with {char}.\n"
+                        f"4. Cinematography: Cinematic three-point lighting, warm rim light, volumetric atmosphere.\n\n"
                         f"JSON DATA:\n{clean_json}"
                     )
                     
@@ -270,7 +286,9 @@ if input_data:
                         st.session_state.generated_img = img_bytes
                         status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
                         st.balloons()
-                    else: st.error(f"Ошибка генерации: {g_err}")
+                    else:
+                        status.update(label="❌ Ошибка генерации", state="error", expanded=True)
+                        st.error(f"Ошибка: {g_err}")
                 except Exception as e: st.error(f"Ошибка данных: {e}")
             else: st.error(f"Ошибка анализа: {err}")
 
