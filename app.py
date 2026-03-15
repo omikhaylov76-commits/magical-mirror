@@ -10,19 +10,19 @@ import streamlit.components.v1 as components
 
 # 1. Настройка страницы
 st.set_page_config(
-    page_title="Magical Mirror Pro", 
-    page_icon="🎀", 
+    page_title="Magical Mirror Pro",
+    page_icon="🎀",
     layout="centered"
 )
 
 # 2. Получение ключа из secrets
 apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 
-# Инициализация состояния сессии
+# Инициализация состояния
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# Настройки безопасности (КРИТИЧЕСКИ ВАЖНО для карикатур)
+# Настройки безопасности (чтобы избежать ошибок блокировки)
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -30,7 +30,7 @@ SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
 ]
 
-# 3. Дизайн (CSS)
+# 3. Дизайн «Магического Зеркала»
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Nunito:wght@600;800;900&display=swap');
@@ -97,6 +97,9 @@ st.markdown("""
         color: #d14d72 !important;
         margin: 0 !important;
     }
+    div[role="radiogroup"] > label:has(input:checked) p {
+        color: #fff !important;
+    }
     .stButton button, [data-testid="stDownloadButton"] button {
         background: radial-gradient(circle at 30% 30%, #ff85a1 0%, #ff4b8b 100%) !important;
         border-radius: 40px !important;
@@ -127,20 +130,20 @@ def process_image(image_bytes):
 def make_request_with_retry(url, payload):
     for i in range(5):
         try:
-            response = requests.post(url, json=payload, timeout=95)
+            response = requests.post(url, json=payload, timeout=90)
             if response.status_code == 200:
                 return response.json(), None
             elif response.status_code in [429, 500, 503]:
                 time.sleep(2**i)
                 continue
-            return None, f"Status {response.status_code}"
+            return None, f"Status {response.status_code}: {response.text}"
         except Exception as e:
             if i == 4: return None, str(e)
         time.sleep(2**i)
     return None, "Error"
 
-def analyze_image_expert(image_bytes, char, act):
-    """Этап 1: Экспертный антропологический анализ (Используем 3.1-flash-image-preview)."""
+def analyze_likeness_structured(image_bytes, char, act):
+    """Этап 1: Экспертный антропологический анализ (JSON)."""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
@@ -161,11 +164,11 @@ def analyze_image_expert(image_bytes, char, act):
     if res:
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
-        except: return None, "Ошибка анализа фото"
+        except: return None, "Ошибка формата ответа."
     return None, err
 
-def generate_pixar_art(prompt):
-    """Этап 2: Творческая генерация (Используем 3.1-flash-image-preview)."""
+def generate_image(prompt):
+    """Этап 2: Генерация финального арта."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -177,12 +180,13 @@ def generate_pixar_art(prompt):
     if res:
         try:
             candidate = res['candidates'][0]
+            if candidate.get('finishReason') == 'SAFETY':
+                return None, "Заблокировано фильтрами безопасности."
             parts = candidate.get('content', {}).get('parts', [])
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-            return None, "ИИ заблокировал изображение или не вернул данные"
-        except: return None, "Ошибка отрисовки"
+        except: pass
     return None, err
 
 # 5. Интерфейс
@@ -205,49 +209,51 @@ else:
 
 if input_data:
     st.image(input_data, use_container_width=True)
+    
     if st.button("✨ CREATE MAGIC ✨"):
         with st.status("🪄 Творим волшебство...", expanded=True) as status:
-            st.write("🔬 Глубокий анатомический анализ...")
-            json_res, err = analyze_image_expert(input_data, char, act)
+            st.write("👀 Анализируем детали...")
+            json_res, err = analyze_likeness_structured(input_data, char, act)
             
             if json_res:
                 try:
-                    # Чистим JSON
-                    start = json_res.find('[')
-                    end = json_res.rfind(']')
-                    clean_json = json_res[start:end+1] if (start != -1 and end != -1) else json_res
+                    # Защищенный парсинг JSON
+                    start_idx = json_res.find('[')
+                    end_idx = json_res.rfind(']')
+                    if start_idx != -1 and end_idx != -1:
+                        clean_json = json_res[start_idx:end_idx+1]
+                    else:
+                        clean_json = json_res.replace('```json', '').replace('```', '').strip()
                     
                     people_data = json.loads(clean_json)
                     if isinstance(people_data, dict): people_data = [people_data]
                     p_count = len(people_data)
                     
-                    st.write(f"🎨 Рисуем 3D мир для {p_count} героев...")
+                    st.write(f"🎨 Рисуем мир для {p_count} героев...")
                     
-                    # Продвинутый Мастер-Промпт
+                    # МАСТЕР-ПРОМПТ (ГОРИЗОНТАЛЬНЫЙ 1280x720)
                     final_prompt = (
-                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
-                        f"Translate the clinical JSON profile of real people into a highly descriptive, continuous English paragraph for image generation.\n\n"
+                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist. Translate the clinical JSON profile of real people into a highly descriptive English paragraph.\n"
                         f"Target Canvas: Horizontal landscape orientation (1280x720).\n"
-                        f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, and highly detailed volumetric lighting.\n\n"
-                        f"Scene Context: {act} with {char} in {loc}.\n"
-                        f"Instructions:\n"
-                        f"1. Playful Twist: Identify 1-2 distinctive features of each person from JSON (prominent nose, posture, face fullness) and playfully exaggerate them by 150%. "
-                        f"2. Micro-Details: Include skin texture, freckles, facial hair, and exact outfit details from JSON.\n"
-                        f"3. Interaction: Describe physical interaction with {char} based on 'limbs_and_hands_pose' and 'interaction_with_scene'.\n"
-                        f"4. Cinematography: Cinematic three-point lighting, warm rim light, rich volumetric atmosphere, dynamic horizontal 16:9 composition.\n\n"
+                        f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, volumetric lighting.\n"
+                        f"Scene: {act} with {char} in {loc}.\n"
+                        f"Likeness Instructions: Identify 1-2 distinctive features of each person from JSON and playfully exaggerate them by 150% (round faces comically round, lanky limbs noodle-like). "
+                        f"Include skin textures, freckles, and specific outfit details. Dynamic horizontal composition, 16:9 aspect ratio.\n\n"
                         f"JSON DATA:\n{clean_json}"
                     )
                     
-                    img_bytes, g_err = generate_pixar_art(final_prompt)
+                    img_bytes, g_err = generate_image(final_prompt)
+                    
                     if img_bytes:
                         st.session_state.generated_img = img_bytes
-                        status.update(label="✨ Готово!", state="complete", expanded=False)
+                        status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
                         st.balloons()
                     else: st.error(f"Ошибка генерации: {g_err}")
                 except Exception as e: st.error(f"Ошибка данных: {e}")
             else: st.error(f"Ошибка анализа: {err}")
 
 if st.session_state.generated_img:
+    st.success("🎉 Твой шедевр готов!")
     st.image(st.session_state.generated_img, use_container_width=True)
     st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
 
@@ -256,17 +262,22 @@ if st.button("🔄 Начать заново"):
     st.session_state.generated_img = None
     st.rerun()
 
-# --- JS блокировка клавиатуры ---
-components.html("""
-<script>
-const doc = window.parent.document;
-const fix = () => {
-    doc.querySelectorAll('div[data-baseweb="select"] input').forEach(i => {
-        i.setAttribute('inputmode', 'none');
-        i.setAttribute('readonly', 'true');
-    });
-};
-fix();
-new MutationObserver(fix).observe(doc.body, {childList: true, subtree: true});
-</script>
-""", height=0, width=0)
+# Блокировка клавиатуры
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    const disableKeyboard = () => {
+        const inputs = doc.querySelectorAll('div[data-baseweb="select"] input');
+        inputs.forEach(input => {
+            input.setAttribute('inputmode', 'none');
+            input.setAttribute('readonly', 'true');
+        });
+    };
+    disableKeyboard();
+    const observer = new MutationObserver(disableKeyboard);
+    observer.observe(doc.body, {childList: true, subtree: true});
+    </script>
+    """,
+    height=0, width=0
+)
