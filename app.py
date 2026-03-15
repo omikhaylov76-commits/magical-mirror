@@ -1,28 +1,28 @@
 import streamlit as st
 import requests
-import base64
-import json
-import re
-import time
 import io
+import base64
+import re
+import json
+import time
 from PIL import Image
 import streamlit.components.v1 as components
 
 # 1. Настройка страницы
 st.set_page_config(
-    page_title="Magical Mirror", 
+    page_title="Magical Mirror Pro", 
     page_icon="🎀", 
     layout="centered"
 )
 
-# 2. Получение ключа из secrets.toml
+# 2. Получение ключа из secrets
 apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 
-# Инициализация сессии
+# Инициализация состояния
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# 3. ДИЗАЙН
+# 3. Дизайн «Магического Зеркала»
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Nunito:wght@600;800;900&display=swap');
@@ -120,9 +120,10 @@ st.markdown("""
 
 st.markdown('<div class="magical-title">Magical Mirror</div>', unsafe_allow_html=True)
 
-# 4. ФУНКЦИИ ОБРАБОТКИ
-def process_image_for_api(image_bytes):
-    """Сжимает тяжелые фото для стабильной работы API."""
+# 4. Функции обработки
+
+def process_image(image_bytes):
+    """Сжатие изображения для стабильной работы API."""
     img = Image.open(io.BytesIO(image_bytes))
     if max(img.size) > 1600:
         img.thumbnail((1600, 1600))
@@ -131,24 +132,25 @@ def process_image_for_api(image_bytes):
     return output.getvalue()
 
 def make_request_with_retry(url, payload):
+    """Запрос с повторными попытками для стабильности."""
     for i in range(5):
         try:
-            response = requests.post(url, json=payload, timeout=60)
+            response = requests.post(url, json=payload, timeout=90)
             if response.status_code == 200:
                 return response.json(), None
             elif response.status_code in [429, 500, 503]:
-                time.sleep(2**i) 
+                time.sleep(2**i)
                 continue
-            else:
-                return None, f"Status {response.status_code}: {response.text}"
+            return None, f"Status {response.status_code}: {response.text}"
         except Exception as e:
             if i == 4: return None, str(e)
         time.sleep(2**i)
-    return None, "Превышено время ожидания или сервер перегружен"
+    return None, "Error"
 
 def analyze_likeness_structured(image_bytes, char, act):
-    compressed_bytes = process_image_for_api(image_bytes)
-    base64_image = base64.b64encode(compressed_bytes).decode('utf-8')
+    """Этап 1: Дословный 'Криминалистический анализ'."""
+    compressed = process_image(image_bytes)
+    base64_image = base64.b64encode(compressed).decode('utf-8')
     
     prompt = (
         f"Act as a highly observant character designer and forensic animator. Analyze the photo for a scene: {act} with {char}.\n"
@@ -167,67 +169,50 @@ def analyze_likeness_structured(image_bytes, char, act):
         "- facial_hair: 'none' or highly specific description (e.g., 'patchy light stubble', 'full bushy beard', 'thin mustache')\n"
         "- expression_label: one of ['gentle_smile', 'big_smile', 'laughing', 'neutral', 'surprised', 'silly_face_with_tongue']\n"
         "- expression_nuance: factual description of how the expression affects the face (e.g., 'crinkles around the eyes', 'one corner of the mouth raised')\n"
-        "- emotion: 'happy', 'curious', 'playful'\n"
-        "- hair: {'color': '...', 'style': '...', 'texture': 'straight/wavy/curly/coily', 'bangs': '...'}\n"
+        "- hair: {'color': '...', 'style': '...', 'texture': 'straight/wavy/curly/coily'}\n"
         "- eyewear: '...' or 'no eyewear'\n"
-        "- outfit_details: list of strings (include specific colors, textures, and patterns)\n"
-        "- accessories: list of strings\n\n"
+        "- outfit_details: list of strings\n\n"
         "Output ONLY valid JSON array. No extra text."
     )
     
-    # Заменили модель-аналитик на gemini-3.1-flash-image-preview
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": base64_image}}]}],
         "generationConfig": {"responseMimeType": "application/json"}
     }
     
-    result, error = make_request_with_retry(url, payload)
-    if result:
+    res, err = make_request_with_retry(url, payload)
+    if res:
         try:
-            return result['candidates'][0]['content']['parts'][0]['text'], None
-        except (KeyError, IndexError):
-            return None, "Фото заблокировано фильтрами безопасности Google или ответ пуст."
-    return None, error
+            return res['candidates'][0]['content']['parts'][0]['text'], None
+        except:
+            return None, "Ошибка формата ответа."
+    return None, err
 
-def call_google_generate(prompt):
+def generate_image(prompt):
+    """Этап 2: Дословный 'Кинематографический рендер'."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
         "generationConfig": {"responseModalities": ["IMAGE"], "candidateCount": 1}
     }
     
-    result, error = make_request_with_retry(url, payload)
-    if result:
+    res, err = make_request_with_retry(url, payload)
+    if res:
         try:
-            parts = result['candidates'][0]['content']['parts']
+            parts = res['candidates'][0]['content']['parts']
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-            return None, "Сервер обработал запрос, но не вернул картинку."
-        except (KeyError, IndexError):
-            return None, "Генерация заблокирована (возможно, сработал фильтр безопасности)."
-    return None, error
+        except: pass
+    return None, err
 
-# 5. ИНТЕРФЕЙС
+# 5. Интерфейс
+
 col1, col2, col3 = st.columns(3)
-with col1: char = st.selectbox("Друг", [
-    "Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin", 
-    "Pochacco", "Keroppi", "Badtz-Maru", "Chococat", "Tuxedosam", 
-    "Little Twin Stars", "Aggretsuko"
-])
-with col2: loc = st.selectbox("Место", [
-    "Розовый замок", "Кафе сладостей", "Сказочный лес", "Радужное облако",
-    "Шоколадная фабрика", "Неоновый Токио", "Звездная обсерватория", 
-    "Парк аттракционов", "Клубничный сад", "Подводный дворец", 
-    "Уютная пекарня", "Хрустальная пещера"
-])
-with col3: act = st.selectbox("Сюжет", [
-    "Чаепитие", "Танцы", "Обнимашки", "Концерт",
-    "Пикник на траве", "Катание на карусели", "Приготовление торта",
-    "Запуск воздушных змеев", "Чтение сказок", "Игра на гитаре", 
-    "Ловля бабочек", "Модная фотосессия"
-])
+with col1: char = st.selectbox("Друг:", ["Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin", "Keroppi", "Badtz-Maru"])
+with col2: loc = st.selectbox("Место:", ["Розовый замок", "Кафе сладостей", "Сказочный лес", "Радужное облако", "Неоновый Токио"])
+with col3: act = st.selectbox("Сюжет:", ["Чаепитие", "Танцы", "Обнимашки", "Концерт", "Пикник на траве"])
 
 st.markdown("<br>", unsafe_allow_html=True)
 source = st.radio("✨ Выбери свою фотографию ✨", ["📸 СЕЛФИ", "🖼️ ГАЛЕРЕЯ"], horizontal=True)
@@ -246,51 +231,49 @@ if input_data:
     if st.button("✨ CREATE MAGIC ✨"):
         with st.status("🪄 Творим волшебство...", expanded=True) as status:
             st.write("👀 Анализируем детали...")
-            json_response, err_msg = analyze_likeness_structured(input_data, char, act)
+            json_res, err = analyze_likeness_structured(input_data, char, act)
             
-            if json_response:
+            if json_res:
                 try:
-                    # УЛУЧШЕННАЯ ЗАЩИТА ПАРСИНГА: Ищем строго от [ до ]
-                    start_idx = json_response.find('[')
-                    end_idx = json_response.rfind(']')
+                    # Защищенный парсинг JSON
+                    start_idx = json_res.find('[')
+                    end_idx = json_res.rfind(']')
                     if start_idx != -1 and end_idx != -1:
-                        clean_json = json_response[start_idx:end_idx+1]
+                        clean_json = json_res[start_idx:end_idx+1]
                     else:
-                        # Безопасная очистка от markdown-тегов
-                        clean_json = json_response.replace('`'*3 + 'json', '').replace('`'*3, '').strip()
+                        clean_json = json_res.replace('```json', '').replace('```', '').strip()
                     
                     people_data = json.loads(clean_json)
                     if isinstance(people_data, dict): people_data = [people_data]
                     p_count = len(people_data)
                     
-                    st.write(f"🎨 Рисуем 3D мир для {p_count} героев...")
+                    st.write(f"🎨 Рисуем мир для {p_count} героев...")
                     
                     final_prompt = (
-                        f"Create a high-quality, professional 3D animated character portrait, rendered in a style reminiscent of major studio films like Pixar or Disney.\n"
-                        f"The scene takes place at {loc}: Action: {act}, including interaction with {char}. "
-                        f"The image must feature EXACTLY {p_count} human characters, each being a stylized but undeniably recognizable caricature of the real person from the original photo.\n\n"
-                        f"The likeness of each character is critical and must be derived directly from the provided JSON character profiles. For each person (ID 1..N):\n"
-                        f"1. Geometry and Structure: Apply extreme care to capture the unique facial structure. Base the 3D geometry of the face on the 'face_shape', 'nose_shape', 'eye_characteristics', 'eyebrow_style', and 'jawline_and_chin' defined in their JSON object.\n"
-                        f"2. Body Proportions & Posture: Base their body type entirely on the 'body_structure_and_posture' description. Playfully exaggerate their physical traits (e.g., make chubby characters delightfully round, soft and bouncy; make tall characters humorously lanky; emphasize specific postures). Make it fun and animated, but keep it charming—do not go to grotesque extremes.\n"
-                        f"3. Unique Markers: Integrate all 'distinctive_features' (e.g., specific moles, freckle patterns, deep dimples, prominent cheekbones) as defining visual markers. Do not smooth these out; exaggerate them slightly for caricatured resemblance.\n"
-                        f"4. Facial Hair and Eyes: The eyes ('eye_characteristics') must retain their unique shape and color. Facial hair must be textured and styled exactly as described.\n"
-                        f"5. Expression Nuance: Translate the specific 'expression_label' and 'expression_nuance' from the JSON directly into the character's facial muscles and mouth shape.\n\n"
-                        f"The aesthetic must be warm, appealing, and expressive, focusing on detailed texture work (stylized fabric textures, hair rendering) and cinematic volumetric lighting. Maintain the joyful mood, but prioritize the specific character identities.\n\n"
-                        f"JSON PROFILES:\n{clean_json}"
+                        f"Create a high-quality, professional 3D animated character portrait in Pixar/Disney style.\n"
+                        f"Scene: {loc}, Action: {act} with {char}.\n"
+                        f"EXACTLY {p_count} human characters as recognizable caricatures of the people in the photo.\n\n"
+                        f"Likeness Instructions:\n"
+                        f"1. Base 3D geometry STRICTLY on the provided JSON (face_shape, nose, jawline).\n"
+                        f"2. Playful Exaggeration: Playfully exaggerate physical traits from 'body_structure_and_posture' (chubby = round and bouncy, tall = lanky, long neck = elegantly elongated). Make it fun but charming.\n"
+                        f"3. Integrate all 'distinctive_features' as defining markers. Do not smooth them out.\n"
+                        f"4. Expression Nuance: Faithfully recreate facial expressions from JSON (expression_label and nuance).\n"
+                        f"5. Lighting: Cinematic three-point lighting, warm rim light, volumetric atmosphere.\n\n"
+                        f"JSON PROFILES: {clean_json}"
                     )
                     
-                    img_bytes, gen_err = call_google_generate(final_prompt)
+                    img_bytes, g_err = generate_image(final_prompt)
                     
                     if img_bytes:
                         st.session_state.generated_img = img_bytes
                         status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
                         st.balloons()
-                    else: st.error(f"Ошибка генерации: {gen_err}")
-                except Exception as e: st.error(f"Ошибка обработки данных: {e}")
-            else: st.error(f"Ошибка анализа: {err_msg}. Проверьте фото или ключ.")
+                    else: st.error(f"Ошибка генерации: {g_err}")
+                except Exception as e: st.error(f"Ошибка данных: {e}")
+            else: st.error(f"Ошибка анализа: {err}")
 
 if st.session_state.generated_img:
-    st.success("🎉 Готово! Твой шедевр!")
+    st.success("🎉 Твой шедевр готов!")
     st.image(st.session_state.generated_img, use_container_width=True)
     st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
 
@@ -299,7 +282,7 @@ if st.button("🔄 Начать заново"):
     st.session_state.generated_img = None
     st.rerun()
 
-# --- Блокировка всплывающей клавиатуры для планшетов ---
+# --- Блокировка клавиатуры для планшетов ---
 components.html(
     """
     <script>
