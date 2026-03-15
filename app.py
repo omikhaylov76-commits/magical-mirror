@@ -18,7 +18,7 @@ st.set_page_config(
 # 2. Получение ключа из secrets
 apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 
-# Инициализация состояния
+# Инициализация состояния сессии
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
@@ -120,7 +120,7 @@ st.markdown("""
 
 st.markdown('<div class="magical-title">Magical Mirror</div>', unsafe_allow_html=True)
 
-# 4. Функции обработки
+# 4. Вспомогательные функции
 
 def process_image(image_bytes):
     """Сжатие изображения для стабильной работы API."""
@@ -147,32 +147,27 @@ def make_request_with_retry(url, payload):
         time.sleep(2**i)
     return None, "Error"
 
-def analyze_likeness_structured(image_bytes, char, act):
-    """Этап 1: Дословный 'Криминалистический анализ'."""
+def analyze_image_expert(image_bytes, char, act):
+    """Этап 1: Экспертный антропологический анализ (Глаза)."""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
     prompt = (
-        f"Act as a highly observant character designer and forensic animator. Analyze the photo for a scene: {act} with {char}.\n"
-        "Identify EXACT headcount. Your goal is to capture the unique, distinguishing features of each person to avoid generating generic \"stock\" faces.\n\n"
-        "For each person, return a JSON array of objects with the following structure:\n"
-        "- id: integer (1..N)\n"
-        "- gender: 'male'/'female'/'unknown'\n"
-        "- age_group: 'toddler'/'child'/'preteen'/'adult'\n"
-        "- body_structure_and_posture: detailed description (e.g., 'thin/slender with a long neck', 'plump/chubby build', 'slouching/stooped shoulders', 'broad shoulders', 'tall and lanky')\n"
-        "- face_shape: e.g. 'round', 'oval', 'heart', 'square', 'diamond', 'long'\n"
-        "- eye_characteristics: detailed description (e.g., 'deep-set narrow green eyes', 'large round brown eyes with long lashes', 'hooded blue eyes')\n"
-        "- eyebrow_style: e.g., 'thick arched eyebrows', 'thin straight eyebrows', 'bushy unkempt eyebrows'\n"
-        "- nose_shape: e.g., 'prominent straight bridge', 'small button nose', 'wide base', 'hooked'\n"
-        "- jawline_and_chin: e.g., 'soft jaw with pointed chin', 'strong square jawline', 'cleft chin'\n"
-        "- distinctive_features: array of specific markers (e.g., ['deep dimples', 'freckles across nose', 'mole on left cheek', 'prominent cheekbones', 'slight asymmetry'])\n"
-        "- facial_hair: 'none' or highly specific description (e.g., 'patchy light stubble', 'full bushy beard', 'thin mustache')\n"
-        "- expression_label: one of ['gentle_smile', 'big_smile', 'laughing', 'neutral', 'surprised', 'silly_face_with_tongue']\n"
-        "- expression_nuance: factual description of how the expression affects the face (e.g., 'crinkles around the eyes', 'one corner of the mouth raised')\n"
-        "- hair: {'color': '...', 'style': '...', 'texture': 'straight/wavy/curly/coily'}\n"
-        "- eyewear: '...' or 'no eyewear'\n"
-        "- outfit_details: list of strings\n\n"
-        "Output ONLY valid JSON array. No extra text."
+        f"Act as an expert forensic anthropologist and world-class character designer. "
+        f"Analyze the provided image with microscopic precision within the context of the scene: {act} with {char}.\n"
+        "Identify the EXACT number of people. For each person, return a JSON array of objects with the structure specified below. "
+        "Output ONLY a valid JSON array. Do NOT include any extra text or markdown formatting. Start with [ and end with ].\n\n"
+        "JSON Structure per person:\n"
+        "{\n"
+        "  \"id\": integer,\n"
+        "  \"demographics\": { \"gender\": \"...\", \"estimated_age\": \"...\", \"ethnicity_markers\": \"...\" },\n"
+        "  \"anatomy_and_build\": { \"body_type\": \"...\", \"height_relative\": \"...\", \"skeletal_posture\": \"...\", \"limbs_and_hands_pose\": \"...\" },\n"
+        "  \"head_and_face_geometry\": { \"exact_angle\": \"...\", \"face_fullness_and_weight_markers\": \"...\", \"jawline_and_neck_connection\": \"...\" },\n"
+        "  \"skin_texture_and_complexion\": { \"base_tone\": \"...\", \"texture\": \"...\", \"imperfections_and_marks\": [] },\n"
+        "  \"facial_features_detailed\": { \"eyes\": { \"shape\": \"...\", \"color\": \"...\", \"brows\": \"...\" }, \"nose\": { \"bridge\": \"...\", \"tip\": \"...\" }, \"mouth\": { \"lips\": \"...\", \"facial_hair\": \"...\" } },\n"
+        "  \"hair_and_styling\": { \"color\": \"...\", \"texture_and_style\": \"...\", \"makeup\": \"...\" },\n"
+        "  \"external_factors\": { \"eyewear\": \"...\", \"outfit_details\": [], \"interaction_with_scene\": \"...\" }\n"
+        "}"
     )
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
@@ -186,11 +181,11 @@ def analyze_likeness_structured(image_bytes, char, act):
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
         except:
-            return None, "Ошибка формата ответа."
+            return None, "Ошибка формата данных анализа."
     return None, err
 
-def generate_image(prompt):
-    """Этап 2: Дословный 'Кинематографический рендер'."""
+def generate_pixar_art(prompt):
+    """Этап 2: Творческая генерация (Руки)."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -207,7 +202,7 @@ def generate_image(prompt):
         except: pass
     return None, err
 
-# 5. Интерфейс
+# 5. Интерфейс приложения
 
 col1, col2, col3 = st.columns(3)
 with col1: char = st.selectbox("Друг:", ["Hello Kitty", "Kuromi", "My Melody", "Cinnamoroll", "Pompompurin", "Keroppi", "Badtz-Maru"])
@@ -230,12 +225,12 @@ if input_data:
     
     if st.button("✨ CREATE MAGIC ✨"):
         with st.status("🪄 Творим волшебство...", expanded=True) as status:
-            st.write("👀 Анализируем детали...")
-            json_res, err = analyze_likeness_structured(input_data, char, act)
+            st.write("🔬 Глубокий анатомический анализ...")
+            json_res, err = analyze_image_expert(input_data, char, act)
             
             if json_res:
                 try:
-                    # Защищенный парсинг JSON
+                    # Защищенный парсинг JSON (поиск скобок)
                     start_idx = json_res.find('[')
                     end_idx = json_res.rfind(']')
                     if start_idx != -1 and end_idx != -1:
@@ -247,22 +242,22 @@ if input_data:
                     if isinstance(people_data, dict): people_data = [people_data]
                     p_count = len(people_data)
                     
-                    st.write(f"🎨 Рисуем мир для {p_count} героев...")
+                    st.write(f"🎨 Создаем Pixar-двойников ({p_count} чел.)...")
                     
                     final_prompt = (
                         f"Create a high-quality, professional 3D animated character portrait in Pixar/Disney style.\n"
                         f"Scene: {loc}, Action: {act} with {char}.\n"
                         f"EXACTLY {p_count} human characters as recognizable caricatures of the people in the photo.\n\n"
                         f"Likeness Instructions:\n"
-                        f"1. Base 3D geometry STRICTLY on the provided JSON (face_shape, nose, jawline).\n"
-                        f"2. Playful Exaggeration: Playfully exaggerate physical traits from 'body_structure_and_posture' (chubby = round and bouncy, tall = lanky, long neck = elegantly elongated). Make it fun but charming.\n"
-                        f"3. Integrate all 'distinctive_features' as defining markers. Do not smooth them out.\n"
-                        f"4. Expression Nuance: Faithfully recreate facial expressions from JSON (expression_label and nuance).\n"
-                        f"5. Lighting: Cinematic three-point lighting, warm rim light, volumetric atmosphere.\n\n"
+                        f"1. Geometry: Base 3D geometry STRICTLY on the 'head_and_face_geometry' and 'facial_features_detailed' in the JSON.\n"
+                        f"2. Build & Posture: Faithfully recreate 'anatomy_and_build' (body type, posture, height). Playfully exaggerate traits (chubby = round/bouncy, tall = lanky).\n"
+                        f"3. Skin & Markers: Apply 'skin_texture_and_complexion' and all 'imperfections_and_marks' (moles, freckles) as defining visual markers.\n"
+                        f"4. Styling: Recreate 'hair_and_styling' and 'external_factors' (eyewear style, outfit colors) precisely.\n"
+                        f"5. Atmosphere: Cinematic three-point lighting, warm rim light, volumetric Pixar atmosphere.\n\n"
                         f"JSON PROFILES: {clean_json}"
                     )
                     
-                    img_bytes, g_err = generate_image(final_prompt)
+                    img_bytes, g_err = generate_pixar_art(final_prompt)
                     
                     if img_bytes:
                         st.session_state.generated_img = img_bytes
@@ -282,7 +277,7 @@ if st.button("🔄 Начать заново"):
     st.session_state.generated_img = None
     st.rerun()
 
-# --- Блокировка клавиатуры для планшетов ---
+# --- Скрипт блокировки клавиатуры для планшетов ---
 components.html(
     """
     <script>
