@@ -15,12 +15,20 @@ st.set_page_config(
     layout="centered"
 )
 
-# 2. Получение ключа из secrets
+# 2. Получение ключа
 apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 
-# Инициализация состояния
+# Инициализация состояния сессии
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
+
+# Настройки безопасности (КРИТИЧЕСКИ ВАЖНО для карикатур)
+SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+]
 
 # 3. Дизайн (CSS)
 st.markdown("""
@@ -106,7 +114,7 @@ st.markdown("""
 
 st.markdown('<div class="magical-title">Magical Mirror</div>', unsafe_allow_html=True)
 
-# 4. Вспомогательные функции
+# 4. Функции обработки
 
 def process_image(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
@@ -125,64 +133,60 @@ def make_request_with_retry(url, payload):
             elif response.status_code in [429, 500, 503]:
                 time.sleep(2**i)
                 continue
-            return None, f"Status {response.status_code}"
+            return None, f"Ошибка {response.status_code}: {response.text[:100]}"
         except Exception as e:
             if i == 4: return None, str(e)
         time.sleep(2**i)
-    return None, "Error"
-
-# ПАРАМЕТРЫ БЕЗОПАСНОСТИ (чтобы не было пустых ответов)
-safety_settings = [
-    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-]
+    return None, "Ошибка связи"
 
 def analyze_image_expert(image_bytes, char, act):
-    """Этап 1: Экспертный антропологический промпт."""
+    """Этап 1: Экспертный антропологический анализ."""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
     prompt = (
-        f"Act as an expert forensic anthropologist and world-class character designer. Analyze the provided image with microscopic precision within the context of the scene: {act} with {char}. "
-        "Identify the EXACT number of people. For each person, return a JSON array of objects with this structure: demographics, anatomy_and_build, head_and_face_geometry, skin_texture_and_complexion, facial_features_detailed, hair_and_styling, external_factors. "
-        "Output ONLY a valid JSON array. Do NOT include any extra text. Start with [ and end with ]."
+        f"Act as an expert forensic anthropologist and world-class character designer. "
+        f"Analyze the image for scene: {act} with {char}. Identify EXACT number of people. "
+        "Return ONLY a JSON array of objects with fields: demographics, anatomy_and_build, head_and_face_geometry, "
+        "skin_texture_and_complexion, facial_features_detailed, hair_and_styling, external_factors."
     )
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}, {"inlineData": {"mimeType": "image/jpeg", "data": base64_image}}]}],
         "generationConfig": {"responseMimeType": "application/json"},
-        "safetySettings": safety_settings
+        "safetySettings": SAFETY_SETTINGS
     }
     
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
-        except: return None, "Ошибка анализа"
+        except: return None, "ИИ заблокировал анализ (фильтр безопасности)"
     return None, err
 
 def generate_pixar_art(prompt):
-    """Этап 2: Творческий Master AI Prompt Engineer промпт."""
+    """Этап 2: Творческая генерация (Руки)."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
         "generationConfig": {"responseModalities": ["IMAGE"], "candidateCount": 1},
-        "safetySettings": safety_settings
+        "safetySettings": SAFETY_SETTINGS
     }
     
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
             candidate = res['candidates'][0]
+            if candidate.get('finishReason') == 'SAFETY':
+                return None, "Генерация заблокирована фильтром безопасности Google"
+            
             parts = candidate.get('content', {}).get('parts', [])
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-            return None, "Нет изображения"
-        except: return None, "Ошибка генерации"
+            return None, "ИИ не прислал изображение. Попробуйте другой сюжет."
+        except: return None, "Ошибка обработки изображения"
     return None, err
 
 # 5. Интерфейс
@@ -212,24 +216,25 @@ if input_data:
             
             if json_res:
                 try:
-                    # Чистим JSON
+                    # Чистим JSON от лишнего текста
                     start = json_res.find('[')
                     end = json_res.rfind(']')
                     clean_json = json_res[start:end+1] if (start != -1 and end != -1) else json_res
                     
                     people_data = json.loads(clean_json)
-                    p_count = len(people_data) if isinstance(people_data, list) else 1
+                    if isinstance(people_data, dict): people_data = [people_data]
+                    p_count = len(people_data)
                     
-                    st.write(f"🎨 Рисуем ({p_count} чел.)...")
+                    st.write(f"🎨 Рисуем мир для {p_count} героев...")
                     
                     final_prompt = (
-                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist. Translate the JSON profile into a highly descriptive English paragraph for DALL-E 3 style generation.\n"
-                        f"Target Canvas: Horizontal landscape orientation (1280x720).\n"
+                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist. Translate the JSON data into a continuous English paragraph.\n"
+                        f"Target Canvas: Horizontal landscape orientation (1280x720, aspect ratio 16:9).\n"
                         f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, volumetric lighting.\n"
-                        f"Scene: {act} with {char} in {loc}.\n"
-                        f"Likeness Instructions: Exaggerate 1 or 2 distinctive features of each person from JSON by 150% (round faces comically round, lanky limbs noodle-like). "
-                        f"Include skin textures, freckles, and specific outfit details. Dynamic horizontal composition, 16:9 aspect ratio.\n\n"
-                        f"JSON DATA: {clean_json}"
+                        f"Scene Context: {act} with {char} in {loc}.\n"
+                        f"Likeness: Exaggerate 1 or 2 distinctive features of each person from JSON by 150% (e.g. comically round faces, noodle-like limbs). "
+                        f"Recreate skin textures, moles, freckles, and outfit details exactly. Dynamic horizontal composition.\n\n"
+                        f"JSON DATA:\n{clean_json}"
                     )
                     
                     img_bytes, g_err = generate_pixar_art(final_prompt)
@@ -237,13 +242,13 @@ if input_data:
                         st.session_state.generated_img = img_bytes
                         status.update(label="✨ Готово!", state="complete", expanded=False)
                         st.balloons()
-                    else: st.error(f"Ошибка: {g_err}")
-                except Exception as e: st.error(f"Данные: {e}")
-            else: st.error(f"Анализ: {err}")
+                    else: st.error(f"Ошибка генерации: {g_err}")
+                except Exception as e: st.error(f"Ошибка данных: {e}")
+            else: st.error(f"Ошибка анализа: {err}")
 
 if st.session_state.generated_img:
     st.image(st.session_state.generated_img, use_container_width=True)
-    st.download_button("💾 СОХРАНИТЬ", st.session_state.generated_img, "magic.jpg", "image/jpeg")
+    st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
 
 # --- JS блокировка клавиатуры ---
 components.html("""
