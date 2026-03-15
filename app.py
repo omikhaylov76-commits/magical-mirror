@@ -15,7 +15,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# 2. Получение ключа
+# 2. Получение ключа из secrets
 apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 
 # Инициализация состояния сессии
@@ -133,22 +133,21 @@ def make_request_with_retry(url, payload):
             elif response.status_code in [429, 500, 503]:
                 time.sleep(2**i)
                 continue
-            return None, f"Ошибка {response.status_code}: {response.text[:100]}"
+            return None, f"Status {response.status_code}"
         except Exception as e:
             if i == 4: return None, str(e)
         time.sleep(2**i)
-    return None, "Ошибка связи"
+    return None, "Error"
 
 def analyze_image_expert(image_bytes, char, act):
-    """Этап 1: Экспертный антропологический анализ."""
+    """Этап 1: Экспертный антропологический анализ (Используем 3.1-flash-image-preview)."""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
     prompt = (
-        f"Act as an expert forensic anthropologist and world-class character designer. "
-        f"Analyze the image for scene: {act} with {char}. Identify EXACT number of people. "
-        "Return ONLY a JSON array of objects with fields: demographics, anatomy_and_build, head_and_face_geometry, "
-        "skin_texture_and_complexion, facial_features_detailed, hair_and_styling, external_factors."
+        f"Act as an expert forensic anthropologist and world-class character designer. Analyze the provided image with microscopic precision within the context of the scene: {act} with {char}. "
+        "Identify the EXACT number of people. For each person, return a JSON array of objects with this structure: demographics, anatomy_and_build, head_and_face_geometry, skin_texture_and_complexion, facial_features_detailed, hair_and_styling, external_factors. "
+        "Output ONLY a valid JSON array. Do NOT include any extra text or markdown formatting. Start with [ and end with ]."
     )
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
@@ -162,11 +161,11 @@ def analyze_image_expert(image_bytes, char, act):
     if res:
         try:
             return res['candidates'][0]['content']['parts'][0]['text'], None
-        except: return None, "ИИ заблокировал анализ (фильтр безопасности)"
+        except: return None, "Ошибка анализа фото"
     return None, err
 
 def generate_pixar_art(prompt):
-    """Этап 2: Творческая генерация (Руки)."""
+    """Этап 2: Творческая генерация (Используем 3.1-flash-image-preview)."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -178,15 +177,12 @@ def generate_pixar_art(prompt):
     if res:
         try:
             candidate = res['candidates'][0]
-            if candidate.get('finishReason') == 'SAFETY':
-                return None, "Генерация заблокирована фильтром безопасности Google"
-            
             parts = candidate.get('content', {}).get('parts', [])
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-            return None, "ИИ не прислал изображение. Попробуйте другой сюжет."
-        except: return None, "Ошибка обработки изображения"
+            return None, "ИИ заблокировал изображение или не вернул данные"
+        except: return None, "Ошибка отрисовки"
     return None, err
 
 # 5. Интерфейс
@@ -211,12 +207,12 @@ if input_data:
     st.image(input_data, use_container_width=True)
     if st.button("✨ CREATE MAGIC ✨"):
         with st.status("🪄 Творим волшебство...", expanded=True) as status:
-            st.write("🔬 Анализируем...")
+            st.write("🔬 Глубокий анатомический анализ...")
             json_res, err = analyze_image_expert(input_data, char, act)
             
             if json_res:
                 try:
-                    # Чистим JSON от лишнего текста
+                    # Чистим JSON
                     start = json_res.find('[')
                     end = json_res.rfind(']')
                     clean_json = json_res[start:end+1] if (start != -1 and end != -1) else json_res
@@ -225,15 +221,20 @@ if input_data:
                     if isinstance(people_data, dict): people_data = [people_data]
                     p_count = len(people_data)
                     
-                    st.write(f"🎨 Рисуем мир для {p_count} героев...")
+                    st.write(f"🎨 Рисуем 3D мир для {p_count} героев...")
                     
+                    # Продвинутый Мастер-Промпт
                     final_prompt = (
-                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist. Translate the JSON data into a continuous English paragraph.\n"
-                        f"Target Canvas: Horizontal landscape orientation (1280x720, aspect ratio 16:9).\n"
-                        f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, volumetric lighting.\n"
+                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
+                        f"Translate the clinical JSON profile of real people into a highly descriptive, continuous English paragraph for image generation.\n\n"
+                        f"Target Canvas: Horizontal landscape orientation (1280x720).\n"
+                        f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, and highly detailed volumetric lighting.\n\n"
                         f"Scene Context: {act} with {char} in {loc}.\n"
-                        f"Likeness: Exaggerate 1 or 2 distinctive features of each person from JSON by 150% (e.g. comically round faces, noodle-like limbs). "
-                        f"Recreate skin textures, moles, freckles, and outfit details exactly. Dynamic horizontal composition.\n\n"
+                        f"Instructions:\n"
+                        f"1. Playful Twist: Identify 1-2 distinctive features of each person from JSON (prominent nose, posture, face fullness) and playfully exaggerate them by 150%. "
+                        f"2. Micro-Details: Include skin texture, freckles, facial hair, and exact outfit details from JSON.\n"
+                        f"3. Interaction: Describe physical interaction with {char} based on 'limbs_and_hands_pose' and 'interaction_with_scene'.\n"
+                        f"4. Cinematography: Cinematic three-point lighting, warm rim light, rich volumetric atmosphere, dynamic horizontal 16:9 composition.\n\n"
                         f"JSON DATA:\n{clean_json}"
                     )
                     
@@ -249,6 +250,11 @@ if input_data:
 if st.session_state.generated_img:
     st.image(st.session_state.generated_img, use_container_width=True)
     st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
+
+st.markdown("<br>", unsafe_allow_html=True)
+if st.button("🔄 Начать заново"):
+    st.session_state.generated_img = None
+    st.rerun()
 
 # --- JS блокировка клавиатуры ---
 components.html("""
