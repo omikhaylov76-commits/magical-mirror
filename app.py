@@ -22,7 +22,7 @@ apiKey = st.secrets.get("GOOGLE_API_KEY", "")
 if 'generated_img' not in st.session_state:
     st.session_state.generated_img = None
 
-# Настройки безопасности (ОБЯЗАТЕЛЬНО для карикатур и анализа)
+# Настройки безопасности (чтобы избежать блокировок "None")
 SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -34,11 +34,14 @@ SAFETY_SETTINGS = [
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Nunito:wght@600;800;900&display=swap');
+
     #MainMenu, footer, header {visibility: hidden;}
+    
     .stApp {
         background: radial-gradient(circle at top, #ffe6eb 0%, #fad0c4 40%, #fbc2eb 100%);
         font-family: 'Nunito', sans-serif;
     }
+
     .magical-title {
         font-family: 'Dancing Script', cursive;
         font-size: 80px;
@@ -48,11 +51,13 @@ st.markdown("""
         margin-bottom: 20px;
         line-height: 1.1;
     }
+
     [data-testid="stImage"] img {
         border-radius: 30px !important;
         border: 5px solid rgba(255, 255, 255, 0.9) !important;
         box-shadow: 0 15px 35px rgba(255, 71, 129, 0.3) !important;
     }
+
     div[data-baseweb="select"] > div {
         background: rgba(255, 255, 255, 0.8) !important;
         border-radius: 20px !important;
@@ -61,6 +66,7 @@ st.markdown("""
         font-weight: 800 !important;
         height: 60px !important;
     }
+    
     div[role="radiogroup"] {
         display: flex !important;
         flex-direction: row !important;
@@ -70,6 +76,7 @@ st.markdown("""
         border-radius: 25px;
         border: 2px solid rgba(255,255,255,0.7);
     }
+
     div[role="radiogroup"] > label {
         flex: 1 !important; 
         background: rgba(255, 255, 255, 0.7) !important;
@@ -80,23 +87,30 @@ st.markdown("""
         justify-content: center !important;
         position: relative;
     }
+
     div[role="radiogroup"] label > div:first-child {
         position: absolute !important;
         opacity: 0 !important;
         width: 0 !important;
     }
+
     div[role="radiogroup"] > label:has(input:checked) {
         background: radial-gradient(circle at 50% 50%, #ff85a1 0%, #ff4b8b 100%) !important;
         box-shadow: 0 8px 20px rgba(255, 75, 139, 0.5) !important;
         border: 2px solid #fff !important;
         transform: scale(1.02);
     }
+
     div[role="radiogroup"] p {
         font-weight: 900 !important;
         font-size: 20px !important;
         color: #d14d72 !important;
         margin: 0 !important;
     }
+    div[role="radiogroup"] > label:has(input:checked) p {
+        color: #fff !important;
+    }
+
     .stButton button, [data-testid="stDownloadButton"] button {
         background: radial-gradient(circle at 30% 30%, #ff85a1 0%, #ff4b8b 100%) !important;
         border-radius: 40px !important;
@@ -117,6 +131,7 @@ st.markdown('<div class="magical-title">Magical Mirror</div>', unsafe_allow_html
 # 4. Функции обработки
 
 def process_image(image_bytes):
+    """Сжатие изображения для стабильной работы API."""
     img = Image.open(io.BytesIO(image_bytes))
     if max(img.size) > 1600:
         img.thumbnail((1600, 1600))
@@ -125,6 +140,7 @@ def process_image(image_bytes):
     return output.getvalue()
 
 def make_request_with_retry(url, payload):
+    """Запрос с повторными попытками для стабильности."""
     for i in range(5):
         try:
             response = requests.post(url, json=payload, timeout=90)
@@ -133,21 +149,33 @@ def make_request_with_retry(url, payload):
             elif response.status_code in [429, 500, 503]:
                 time.sleep(2**i)
                 continue
-            return None, f"Status {response.status_code}: {response.text}"
+            return None, f"Ошибка API {response.status_code}"
         except Exception as e:
             if i == 4: return None, str(e)
         time.sleep(2**i)
-    return None, "Error"
+    return None, "Превышено время ожидания"
 
 def analyze_likeness_structured(image_bytes, char, act):
-    """Этап 1: Экспертный антропологический анализ (JSON)."""
+    """Этап 1: Криминалистический анализ (JSON)."""
     compressed = process_image(image_bytes)
     base64_image = base64.b64encode(compressed).decode('utf-8')
     
     prompt = (
-        f"Act as an expert forensic anthropologist and world-class character designer. Analyze the provided image with microscopic precision within the context of the scene: {act} with {char}. "
-        "Identify the EXACT number of people. For each person, return a JSON array of objects with this structure: demographics, anatomy_and_build, head_and_face_geometry, skin_texture_and_complexion, facial_features_detailed, hair_and_styling, external_factors. "
-        "Output ONLY a valid JSON array. Do NOT include any extra text. Start with [ and end with ]."
+        f"Act as a highly observant character designer and forensic animator. Analyze the photo for a scene: {act} with {char}.\n"
+        "Identify EXACT headcount. Your goal is to capture the unique, distinguishing features of each person to avoid generating generic \"stock\" faces.\n\n"
+        "For each person, return a JSON array of objects with the following structure:\n"
+        "- id: integer (1..N)\n"
+        "- gender: 'male'/'female'/'unknown'\n"
+        "- body_structure_and_posture: detailed description (e.g., 'thin/slender with a long neck', 'plump/chubby build', 'slouching/stooped shoulders')\n"
+        "- face_shape: e.g. 'round', 'oval', 'heart', 'square', 'diamond', 'long'\n"
+        "- eye_characteristics: detailed description\n"
+        "- nose_shape: detailed description\n"
+        "- jawline_and_chin: detailed description\n"
+        "- distinctive_features: array of specific markers (e.g., ['deep dimples', 'freckles', 'mole'])\n"
+        "- expression_label: one of ['gentle_smile', 'big_smile', 'laughing', 'neutral', 'surprised', 'silly_face_with_tongue']\n"
+        "- hair: {'color': '...', 'style': '...'}\n"
+        "- outfit_details: list of strings\n\n"
+        "Output ONLY valid JSON array. No extra text."
     )
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
@@ -160,12 +188,16 @@ def analyze_likeness_structured(image_bytes, char, act):
     res, err = make_request_with_retry(url, payload)
     if res:
         try:
-            return res['candidates'][0]['content']['parts'][0]['text'], None
-        except: return None, "Ошибка анализа фото"
+            candidate = res['candidates'][0]
+            if candidate.get('finishReason') == 'SAFETY':
+                return None, "Анализ фото заблокирован фильтрами безопасности Google."
+            return candidate['content']['parts'][0]['text'], None
+        except:
+            return None, "Не удалось разобрать ответ аналитика."
     return None, err
 
 def generate_image(prompt):
-    """Этап 2: Творческая генерация (Hands)."""
+    """Этап 2: Кинематографический рендер."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={apiKey}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}], 
@@ -178,14 +210,14 @@ def generate_image(prompt):
         try:
             candidate = res['candidates'][0]
             if candidate.get('finishReason') == 'SAFETY':
-                return None, "Заблокировано фильтром безопасности."
+                return None, "Генерация заблокирована фильтрами безопасности."
+            
             parts = candidate.get('content', {}).get('parts', [])
             for p in parts:
                 if 'inlineData' in p:
                     return base64.b64decode(p['inlineData']['data']), None
-            return None, "ИИ не прислал изображение."
-        except: return None, "Ошибка отрисовки"
-    return None, err
+        except: pass
+    return None, err or "Неизвестная ошибка генерации"
 
 # 5. Интерфейс
 
@@ -207,6 +239,7 @@ else:
 
 if input_data:
     st.image(input_data, use_container_width=True)
+    
     if st.button("✨ CREATE MAGIC ✨"):
         with st.status("🪄 Творим волшебство...", expanded=True) as status:
             st.write("👀 Анализируем детали...")
@@ -214,41 +247,46 @@ if input_data:
             
             if json_res:
                 try:
-                    # Очистка JSON
+                    # Усиленный парсинг JSON
                     start_idx = json_res.find('[')
                     end_idx = json_res.rfind(']')
-                    clean_json = json_res[start_idx:end_idx+1] if (start_idx != -1 and end_idx != -1) else json_res
+                    if start_idx != -1 and end_idx != -1:
+                        clean_json = json_res[start_idx:end_idx+1]
+                    else:
+                        clean_json = json_res.replace('```json', '').replace('```', '').strip()
                     
                     people_data = json.loads(clean_json)
                     if isinstance(people_data, dict): people_data = [people_data]
                     p_count = len(people_data)
                     
-                    st.write(f"🎨 Мастер-промптинг...")
+                    st.write(f"🎨 Рисуем мир для {p_count} героев...")
                     
-                    # МАСТЕР-ПРОМПТ ДЛЯ ГОРИЗОНТАЛЬНОЙ ГЕНЕРАЦИИ (1280x720)
                     final_prompt = (
-                        f"Act as a master AI Prompt Engineer and Lead Caricature Artist for a top-tier 3D animation studio. "
-                        f"Translate the clinical JSON profile of real people into a highly descriptive, continuous English paragraph.\n\n"
-                        f"Target Canvas: Horizontal landscape orientation (1280x720).\n"
-                        f"Target Style: High-end 3D animated Pixar/Disney style caricature. Bright, vivid, magical, volumetric lighting.\n\n"
-                        f"Scene Context: {act} with {char} in {loc}.\n"
-                        f"Instructions:\n"
-                        f"1. Playful Twist: Exaggerate 1-2 distinctive features of each person from JSON by 150% (round faces comically round, lanky limbs noodle-like). "
-                        f"2. Micro-Details: Include skin texture, freckles, facial hair, and exact outfit colors from JSON.\n"
-                        f"3. Cinematography: Warm rim light, rich volumetric atmosphere, dynamic horizontal 16:9 composition.\n\n"
-                        f"JSON DATA:\n{clean_json}"
+                        f"Create a high-quality, professional 3D animated character portrait in Pixar/Disney style.\n"
+                        f"Scene: {loc}, Action: {act} with {char}.\n"
+                        f"Target Canvas: 1280x720 Horizontal landscape orientation.\n"
+                        f"EXACTLY {p_count} human characters as recognizable caricatures of the people in the photo.\n\n"
+                        f"Likeness Instructions:\n"
+                        f"1. Base 3D geometry STRICTLY on the provided JSON (face_shape, nose, jawline).\n"
+                        f"2. Playful Exaggeration: Playfully exaggerate physical traits from 'body_structure_and_posture' by 150% (chubby = round and bouncy, tall = lanky). Make it fun but charming.\n"
+                        f"3. Integrate all 'distinctive_features' as defining markers.\n"
+                        f"4. Expression Nuance: Faithfully recreate facial expressions from JSON.\n"
+                        f"5. Lighting: Cinematic three-point lighting, warm rim light, volumetric atmosphere.\n\n"
+                        f"JSON PROFILES: {clean_json}"
                     )
                     
                     img_bytes, g_err = generate_image(final_prompt)
+                    
                     if img_bytes:
                         st.session_state.generated_img = img_bytes
-                        status.update(label="✨ Готово!", state="complete", expanded=False)
+                        status.update(label="✨ Волшебство готово!", state="complete", expanded=False)
                         st.balloons()
-                    else: st.error(f"Ошибка: {g_err}")
+                    else: st.error(f"Ошибка генерации: {g_err}")
                 except Exception as e: st.error(f"Ошибка данных: {e}")
             else: st.error(f"Ошибка анализа: {err}")
 
 if st.session_state.generated_img:
+    st.success("🎉 Твой шедевр готов!")
     st.image(st.session_state.generated_img, use_container_width=True)
     st.download_button("💾 СОХРАНИТЬ КАРТИНКУ", st.session_state.generated_img, "magic_mirror.jpg", "image/jpeg")
 
@@ -257,17 +295,22 @@ if st.button("🔄 Начать заново"):
     st.session_state.generated_img = None
     st.rerun()
 
-# Блокировка клавиатуры
-components.html("""
-<script>
-const doc = window.parent.document;
-const fix = () => {
-    doc.querySelectorAll('div[data-baseweb="select"] input').forEach(i => {
-        i.setAttribute('inputmode', 'none');
-        i.setAttribute('readonly', 'true');
-    });
-};
-fix();
-new MutationObserver(fix).observe(doc.body, {childList: true, subtree: true});
-</script>
-""", height=0, width=0)
+# --- Блокировка клавиатуры для планшетов ---
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    const disableKeyboard = () => {
+        const inputs = doc.querySelectorAll('div[data-baseweb="select"] input');
+        inputs.forEach(input => {
+            input.setAttribute('inputmode', 'none');
+            input.setAttribute('readonly', 'true');
+        });
+    };
+    disableKeyboard();
+    const observer = new MutationObserver(disableKeyboard);
+    observer.observe(doc.body, {childList: true, subtree: true});
+    </script>
+    """,
+    height=0, width=0
+)
